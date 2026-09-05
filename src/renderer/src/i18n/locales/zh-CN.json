@@ -81,6 +81,18 @@
     "steerTip": "在该智能体的下一轮边界交给它一条笔记。不会打断它当前正在做的事，也不会输入到它的终端。",
     "steerAria": "给该智能体发送一条笔记"
   },
+  "inputLock": {
+    "locked": "输入已锁定",
+    "open": "输入已开放",
+    "lockTip": "重新锁定直接输入。{{name}} 的终端、消息框和引导框将不再接受你的输入；工作仍会由 {{godName}} 派发。",
+    "unlockTip": "工作智能体默认锁定：你向 {{godName}} 下达指令，{{godName}} 再向 {{name}} 下达。开放后可直接在它的终端、消息框或引导框中输入。保持开放直到你再次锁定。",
+    "lockAria": "锁定对该智能体的直接输入",
+    "unlockAria": "开放对该智能体的直接输入",
+    "steerLockedPlaceholder": "直接输入已锁定——用锁定按钮开放后才能发送笔记",
+    "composerPlaceholder": "对 {{name}} 的直接输入已锁定——请改为向编排者下达指令，或用上方的锁定按钮开放",
+    "terminalBadge": "只读",
+    "terminalBadgeTip": "直接输入已锁定：此处的按键、粘贴和拖放都会被忽略。编排者仍会派发工作。可在控制栏用锁定按钮开放。"
+  },
   "agentCard": {
     "boss": "老板",
     "contextTitle": "上下文：{{used}} / {{limit}} 令牌（{{pct}}%）",
@@ -476,6 +488,8 @@
   },
   "addAgent": {
     "title": "添加智能体",
+    "cloneOf": "克隆自",
+    "cloneHint": "已复制名称、形象、引擎和简报。请为克隆体选择项目文件夹；若两者会同时在楼层上，请为其改名。",
     "hireImported": "已导入 hire：",
     "byAuthor": " · 作者 {{author}}",
     "reviewFields": "生成前请逐项检查——尤其是命令。",

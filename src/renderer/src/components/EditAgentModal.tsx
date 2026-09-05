@@ -5,6 +5,8 @@ import { SpritePortrait } from './SpritePortrait';
 import { ProviderLogo } from './ProviderLogo';
 import { useStore, type Agent } from '@/store/store';
 import { OFFICE_CAST, type OfficeCharacterName } from '@/scene/office/cast';
+import { Icon } from './Icon';
+import { cloneTemplateFromAgent } from '@shared/agentClone';
 import { type AccentColorName } from '@/design/tokens';
 import {
   type AgentProvider,
@@ -31,6 +33,7 @@ export interface EditAgentModalProps {
  */
 export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
   const updateAgent = useStore((s) => s.updateAgent);
+  const setAddAgentOpen = useStore((s) => s.setAddAgentOpen);
   const [config, setConfig] = useState<HarnessConfig | null>(null);
 
   const [name, setName] = useState(agent.name);
@@ -42,9 +45,21 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
   const [model, setModel] = useState<string | undefined>(agent.model);
   const [description, setDescription] = useState(agent.description);
   const [goal, setGoal] = useState(agent.goal ?? '');
+  // Workspace — the repo this agent (re)spawns into. Every restart path
+  // (Command Center restart, restore on launch, auto-revive) reads `agent.cwd`,
+  // so patching it here is enough for the next restart to land in the new repo.
+  const [cwd, setCwd] = useState(agent.cwd);
+  const [repos, setRepos] = useState<string[]>([]);
+  const [cwdError, setCwdError] = useState<string | null>(null);
+  // Michael runs in the hive home and his assistant follows him; neither takes
+  // a project of its own, so the picker is hidden for them.
+  const canPickWorkspace = !agent.isGod && !agent.isAssistant;
 
   useEffect(() => {
-    void window.cth.getConfig().then(setConfig).catch(() => setConfig(null));
+    void window.cth.getConfig().then((c) => {
+      setConfig(c);
+      setRepos(c?.registeredRepos ?? []);
+    }).catch(() => setConfig(null));
   }, []);
 
   // Keep form in sync when the selected agent changes while the modal is open.
@@ -56,7 +71,27 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
     setModel(agent.model);
     setDescription(agent.description);
     setGoal(agent.goal ?? '');
+    setCwd(agent.cwd);
+    setCwdError(null);
   }, [agent.id]);
+
+  const pickFolder = async () => {
+    const res = await window.cth.chooseFolder();
+    if (res.ok) { setCwd(res.path); setCwdError(null); }
+  };
+
+  /** Add a path to the registered-projects quick picks (same list Add Agent
+   *  uses), so the next hire can pick it in one click. */
+  const registerProject = async (path: string) => {
+    const p = path.trim();
+    if (!p || repos.includes(p)) return;
+    const next = [p, ...repos.filter((r) => r !== p)];
+    setRepos(next);
+    try {
+      const updated = await window.cth.updateConfig({ registeredRepos: next });
+      setRepos(updated.registeredRepos ?? next);
+    } catch { /* quick picks are a convenience; the cwd itself still saves */ }
+  };
 
   const pickProvider = (id: AgentProvider) => {
     setProvider(id);
@@ -70,6 +105,29 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
 
   const preset = providerPreset(provider);
 
+  /** "Same agent, other repo": hand the CURRENT form values (not the saved
+   *  record — what you see is what gets cloned) to Add Agent as a template and
+   *  swap dialogs. Nothing is saved here; nothing spawns until the human picks
+   *  a workspace and presses spawn there. */
+  const cloneToAnotherRepo = () => {
+    const template = cloneTemplateFromAgent(
+      {
+        ...agent,
+        name: name.trim() || agent.name,
+        character,
+        accent,
+        provider,
+        model,
+        command: config ? buildSpawnCommand(config, model, provider) : agent.command,
+        description: description.trim() || agent.description,
+        goal: goal.trim() || undefined
+      },
+      config?.agentTokenCaps?.[agent.id]
+    );
+    onClose();
+    setAddAgentOpen(true, template);
+  };
+
   const save = () => {
     const trimmedName = name.trim() || agent.name;
     const trimmedDescription = description.trim() || 'a fresh harness';
@@ -77,6 +135,10 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
     const command = config
       ? buildSpawnCommand(config, model, provider)
       : agent.command;
+
+    const nextCwd = cwd.trim();
+    const cwdChanged = canPickWorkspace && nextCwd !== agent.cwd;
+    if (cwdChanged && !nextCwd) { setCwdError('Pick a project folder or leave the current one.'); return; }
 
     updateAgent(agent.id, {
       name: trimmedName,
@@ -86,7 +148,11 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
       model,
       command,
       description: trimmedDescription,
-      goal: trimmedGoal || undefined
+      goal: trimmedGoal || undefined,
+      // A new repo means a new project label and NO inherited worktree: the old
+      // `agent/<id>` worktree belongs to the previous repo, and the restore /
+      // revive paths would otherwise cd back into it and ignore the change.
+      ...(cwdChanged ? { cwd: nextCwd, project: basename(nextCwd), worktreePath: undefined } : {})
     });
     onClose();
   };
@@ -273,15 +339,99 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
                   onChange={(e) => setGoal(e.target.value)}
                   placeholder="long-running directive injected on every prompt"
                   rows={4}
-                  style={{ ...inputStyle, fontFamily: 'var(--cth-font-ui)', resize: 'vertical', minHeight: 200 }}
+                  style={{ ...inputStyle, fontFamily: 'var(--cth-font-ui)', resize: 'vertical', minHeight: canPickWorkspace ? 120 : 200 }}
                 />
               </Row>
             </Section>
+
+            {canPickWorkspace && (
+              <div style={{ marginTop: 14 }}>
+              <Section label="Workspace" hint="project folder · next restart">
+                <Row label="Project">
+                  {repos.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 6 }}>
+                      {repos.map((r) => {
+                        const active = cwd.trim() === r;
+                        return (
+                          <button
+                            key={r}
+                            type="button"
+                            onClick={() => { setCwd(r); setCwdError(null); }}
+                            title={r}
+                            style={{
+                              padding: '3px 8px 1px',
+                              background: active ? `var(--cth-${accent}-light)` : 'var(--cth-cream-100)',
+                              boxShadow: active
+                                ? 'inset 0 0 0 1.5px var(--cth-ink-500)'
+                                : 'inset 0 0 0 1px var(--cth-ink-100)',
+                              fontFamily: 'var(--cth-font-ui)', fontSize: 12,
+                              color: 'var(--cth-ink-900)', cursor: 'pointer', border: 'none'
+                            }}
+                          >
+                            {basename(r)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <input
+                      value={cwd}
+                      onChange={(e) => { setCwd(e.target.value); setCwdError(null); }}
+                      placeholder="/path/to/your/project"
+                      style={{ ...inputStyle, flex: 1, fontFamily: 'var(--cth-font-mono)', fontSize: 13 }}
+                    />
+                    <PixelButton variant="secondary" size="md" onClick={() => { void pickFolder(); }}>
+                      <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+                        <Icon name="folder" /> pick
+                      </span>
+                    </PixelButton>
+                  </div>
+                  {cwd.trim() && !repos.includes(cwd.trim()) && (
+                    <button
+                      type="button"
+                      onClick={() => { void registerProject(cwd); }}
+                      title="Add this folder to the project quick picks"
+                      style={{
+                        alignSelf: 'flex-start', marginTop: 2,
+                        padding: '2px 8px 1px', border: 'none', cursor: 'pointer',
+                        background: 'var(--cth-mint-light)', boxShadow: 'inset 0 0 0 1px var(--cth-ink-100)',
+                        fontFamily: 'var(--cth-font-ui)', fontSize: 12, color: 'var(--cth-ink-900)',
+                        display: 'inline-flex', alignItems: 'center', gap: 4
+                      }}
+                    >
+                      <Icon name="plus" /> save as project
+                    </button>
+                  )}
+                </Row>
+                {cwdError && (
+                  <span style={{ fontSize: 12, color: 'var(--cth-coral)' }}>{cwdError}</span>
+                )}
+                <span style={{ fontSize: 12, color: 'var(--cth-ink-500)', lineHeight: '16px' }}>
+                  {cwd.trim() !== agent.cwd
+                    ? `Moves ${agent.name} from ${basename(agent.cwd)} to ${basename(cwd.trim()) || '…'} on the next restart (Command Center → Floor → restart). Its git-isolation worktree, if any, is left behind.`
+                    : 'The live session keeps running here. Change the folder and restart the agent to move it onto another repo.'}
+                </span>
+              </Section>
+              </div>
+            )}
               </div>
             </div>
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
               <PixelButton variant="ghost" size="md" onClick={onClose}>cancel</PixelButton>
+              {canPickWorkspace && (
+                <PixelButton variant="secondary" size="md" onClick={cloneToAnotherRepo}>
+                  <span
+                    className="cth-tip cth-tip-wrap"
+                    data-tip={`Open Add Agent pre-filled with ${agent.name}'s name, face, engine and briefing, so you only pick the project folder. ${agent.name} stays as is; nothing spawns until you press spawn there.`}
+                    aria-label="Clone this agent onto another repo"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <Icon name="plus" /> clone to another repo
+                  </span>
+                </PixelButton>
+              )}
               <div style={{ flex: 1 }} />
               <PixelButton variant="primary" size="md" onClick={save}>save changes</PixelButton>
             </div>
@@ -290,6 +440,12 @@ export function EditAgentModal({ agent, onClose }: EditAgentModalProps) {
       </div>
     </div>
   );
+}
+
+/** Last path segment, either separator — agents on Windows carry backslash
+ *  paths, and a chip that shows the full path is not a chip. */
+function basename(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
 const inputStyle: CSSProperties = {

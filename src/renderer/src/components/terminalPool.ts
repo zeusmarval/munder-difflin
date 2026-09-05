@@ -39,6 +39,7 @@ import {
   type TerminalAutomationBlock
 } from './terminalAutomation';
 import { sanitizeTerminalSelection } from './terminalSelection';
+import { directInputAllowed } from '@shared/directInput';
 import '@xterm/xterm/css/xterm.css';
 
 export interface TerminalEntry {
@@ -254,8 +255,12 @@ export function acquireTerminal(ptyId: string, theme?: ThemeMap, fontSize = 14):
     void window.cth.readClipboard().then((t) => { if (t) term.paste(t); });
   };
   term.attachCustomKeyEventHandler((ev) => {
-    if (ev.type !== 'keydown') return true;
-    if (!(ev.ctrlKey || ev.metaKey)) return true;
+    // Direct-input lock: swallow every key (keydown AND keypress — printable
+    // characters are emitted on keypress) except copy, which reads the screen
+    // and writes nothing. Returning false keeps xterm from handling it.
+    const locked = directInputLockedFor(ptyId);
+    if (ev.type !== 'keydown') return !locked;
+    if (!(ev.ctrlKey || ev.metaKey)) return !locked;
     const key = ev.key.toLowerCase();
     if (key === 'c' && (ev.shiftKey || term.hasSelection())) {
       // Copy-on-Ctrl+C only while a selection exists; clear it after, so a
@@ -265,16 +270,16 @@ export function acquireTerminal(ptyId: string, theme?: ThemeMap, fontSize = 14):
       return false;
     }
     if (key === 'v' && ev.shiftKey) {
-      pasteClipboard();
+      if (!locked) pasteClipboard();
       ev.preventDefault();
       return false;
     }
-    return true;
+    return !locked;
   });
   host.addEventListener('contextmenu', (ev) => {
     ev.preventDefault();
     if (copySelection()) { term.clearSelection(); return; }
-    pasteClipboard();
+    if (!directInputLockedFor(ptyId)) pasteClipboard();
   });
 
   // Answer the terminal-colour queries (OSC 10 foreground, OSC 11 background).
@@ -740,6 +745,25 @@ export function notifyArabicTerminalChangeAll(): void {
 }
 
 /** Re-parent a pty's terminal into `container`, opening xterm on first attach. */
+/** The custom key handler only sees KEYS. Native paste (Ctrl+V / Cmd+V /
+ *  middle-click) and IME composition reach xterm as DOM events on its hidden
+ *  textarea, so a locked agent needs those cut off too. Capture-phase listeners
+ *  on the textarea itself run before xterm's own (bubble) listeners on the same
+ *  target, and stopImmediatePropagation keeps them from ever firing. Registered
+ *  once per open(); the lock itself is re-read per event. */
+function guardDirectInput(entry: TerminalEntry): void {
+  const ta = entry.term.textarea;
+  if (!ta) return;
+  const swallow = (ev: Event) => {
+    if (!directInputLockedFor(entry.ptyId)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+  };
+  for (const type of ['paste', 'beforeinput', 'input', 'compositionstart', 'compositionupdate', 'compositionend']) {
+    ta.addEventListener(type, swallow, true);
+  }
+}
+
 export function attachTerminal(entry: TerminalEntry, container: HTMLElement): void {
   container.appendChild(entry.host);
   if (!entry.opened) {
@@ -747,6 +771,7 @@ export function attachTerminal(entry: TerminalEntry, container: HTMLElement): vo
     // terminal, and xterm needs its host in the document to measure the cell.
     entry.term.open(entry.host);
     entry.opened = true;
+    guardDirectInput(entry);
     // Arabic/RTL terminal support (the full recipe is documented in
     // terminal/arabicJoiner.ts): join every Arabic phrase into one render range,
     // and strip xterm's per-span letter-spacing from Arabic spans. MUST come
@@ -931,7 +956,7 @@ function resolvePathCandidate(ptyId: string, raw: string): string | null {
 // pure automation helpers that share this file's import graph.
 interface MdStoreShape {
   getState: () => {
-    agents: Array<{ ptyId?: string; cwd: string }>;
+    agents: Array<{ ptyId?: string; cwd: string; isGod?: boolean; isAssistant?: boolean; directInput?: boolean }>;
     openFileInIde: (absPath: string) => void;
   };
 }
@@ -939,6 +964,22 @@ let storeApi: MdStoreShape | null = null;
 void import('@/store/store')
   .then((m) => { storeApi = (m as unknown as { useStore: MdStoreShape }).useStore; })
   .catch(() => { /* store unavailable (tests) — link provider stays inert */ });
+
+/** Is the human allowed to type into this pty right now? Workers are locked by
+ *  default (shared/directInput.ts): the office is driven through the
+ *  orchestrator, and a keystroke into a worker desyncs Michael's picture of the
+ *  floor. Read from the store on every event rather than cached: the operator
+ *  flips it from the control strip and the very next key must obey.
+ *
+ *  Only HUMAN input is gated — keys, paste, IME, file drops. Everything xterm
+ *  emits on its own through onData (cursor-position reports, DA, colour
+ *  replies) still flows, otherwise a locked TUI would hang waiting for answers
+ *  to its own queries. The hive's typed deliveries (useHive → writePty) bypass
+ *  xterm entirely and are not affected. */
+export function directInputLockedFor(ptyId: string): boolean {
+  const agent = storeApi?.getState().agents.find((a) => a.ptyId === ptyId);
+  return !directInputAllowed(agent);
+}
 
 /** Act on a verified path. `reveal` also takes any directory that reaches here:
  *  the IDE needs a file. A miss is silent by design — the token is agent output

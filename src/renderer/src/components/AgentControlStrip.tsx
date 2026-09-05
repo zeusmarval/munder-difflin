@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PixelButton } from './PixelButton';
 import { AgentHoldButton } from './AgentHoldButton';
+import { AgentInputLockButton } from './AgentInputLockButton';
 import { isComposingKey } from '@shared/imeGuard';
+import { useStore } from '@/store/store';
+import { directInputAllowed } from '@shared/directInput';
 
 /**
  * Operator control for one agent (#7C.1-7C.3) — pause (deny tools at the next
@@ -39,6 +42,9 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
   const [steer, setSteer] = useState('');
   const [note, setNote] = useState('');
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Direct-input lock (shared/directInput.ts): a steer note is the human
+  // writing to this agent, so it is gated the same way its terminal is.
+  const inputLocked = useStore((s) => !directInputAllowed(s.agents.find((a) => a.id === agentId)));
 
   useEffect(() => {
     let alive = true;
@@ -64,7 +70,7 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
   };
   const sendSteer = async () => {
     const t_ = steer.trim();
-    if (!t_) return;
+    if (!t_ || inputLocked) return;
     const s = await window.cth.controlSteer(agentId, t_);
     if (s) setSnap(s);
     setSteer('');
@@ -106,6 +112,9 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
             Michael — so the tooltip carries that distinction now that the
             grouping no longer does. */}
         <AgentHoldButton agentId={agentId} />
+        {/* Same family as 1:1 — restrains the HUMAN's channel, not the agent.
+            Workers start locked; this opens one on purpose. */}
+        <AgentInputLockButton agentId={agentId} />
         {/* v0.3.4: the auto-delivery switch moved to the god's Command Center
             header — ONE floor-wide control instead of a per-agent toggle. */}
         {snap?.autoDeliveryPaused && (
@@ -120,14 +129,15 @@ export function AgentControlStrip({ agentId }: { agentId: string }) {
           value={steer}
           onChange={(e) => setSteer(e.target.value)}
           onKeyDown={(e) => { if (isComposingKey(e)) return; if (e.key === 'Enter') sendSteer(); }}
-          placeholder={t('agentControl.steerPlaceholder')}
+          disabled={inputLocked}
+          placeholder={inputLocked ? t('inputLock.steerLockedPlaceholder') : t('agentControl.steerPlaceholder')}
           style={{
             flex: 1, padding: '4px 6px', background: 'var(--cth-paper-100)', border: 'none',
             fontFamily: 'var(--cth-font-ui)',
             fontSize: 12, color: 'var(--cth-ink-900)', outline: 'none'
           }}
         />
-        <PixelButton variant="secondary" size="sm" onClick={sendSteer} disabled={!steer.trim()}>
+        <PixelButton variant="secondary" size="sm" onClick={sendSteer} disabled={!steer.trim() || inputLocked}>
           <span
             className="cth-tip cth-tip-wrap"
             data-tip={t('agentControl.steerTip')}

@@ -10,6 +10,7 @@ import { OFFICE_CAST, DEFAULT_CHARACTER, type OfficeCharacterName } from '@/scen
 import { type AccentColorName } from '@/design/tokens';
 import type { HireManifest } from '@shared/hire';
 import { hireQueueProgress } from '@shared/hireQueue';
+import { defaultCloneWorkspace, type AgentCloneTemplate } from '@shared/agentClone';
 import { MCP_CATALOG } from '@shared/mcpCatalog';
 import {
   OSS_LOCAL_PICKS,
@@ -153,6 +154,11 @@ export function AddAgentModal({ onClose, config, onConfigChange }: AddAgentModal
   const finishPendingHire = useStore(s => s.finishPendingHire);
   const pendingHire = hireQueue.pending[0];
   const reviewProgress = hireQueueProgress(hireQueue);
+  // "Clone <agent> onto another repo": seeds the form once, like a manifest
+  // does, then the human picks the workspace and presses spawn. A hire under
+  // review wins — its effect re-seeds on every queue advance, so the two never
+  // fight over the fields.
+  const cloneTemplate = useStore(s => s.addAgentTemplate);
 
   const knownCharacter = (c?: string): OfficeCharacterName =>
     (OFFICE_CAST.some(m => m.name === c) ? (c as OfficeCharacterName) : DEFAULT_CHARACTER);
@@ -353,6 +359,36 @@ export function AddAgentModal({ onClose, config, onConfigChange }: AddAgentModal
     setSection('identity');
   };
 
+  /** Seed the form from a clone template. Identity, engine and briefing are
+   *  the source's; the workspace deliberately is NOT (it defaults to the first
+   *  registered project that is not the source's own) and the modal opens on
+   *  the Workspace section, because picking the repo is the whole job here. */
+  const applyCloneTemplate = (c: AgentCloneTemplate) => {
+    setHireMeta(null);
+    setName(c.name);
+    setCharacter(knownCharacter(c.character));
+    setAccent(knownAccent(c.accent));
+    const prov = c.provider as AgentProvider;
+    setProvider(prov);
+    setModel(c.model);
+    setCommand(prov === 'custom' && c.command?.trim()
+      ? c.command.trim()
+      : buildSpawnCommand(config, c.model, prov));
+    setDescription(c.description || 'a fresh harness');
+    setGoal(c.goal ?? '');
+    setIsolate(c.isolate);
+    setResumeSessionId('');
+    setFolderNote(undefined);
+    setCwd(defaultCloneWorkspace(c, repos));
+    setSection('workspace');
+  };
+
+  useLayoutEffect(() => {
+    if (cloneTemplate && !pendingHire) applyCloneTemplate(cloneTemplate);
+  // Same snapshot rule as the manifest effect below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloneTemplate]);
+
   // Advancing a batch keeps this modal mounted. Re-seed every form field when
   // the queue head changes so edits made while reviewing one hire cannot leak
   // into the next.
@@ -490,9 +526,11 @@ export function AddAgentModal({ onClose, config, onConfigChange }: AddAgentModal
     // A hire manifest may carry a per-agent token budget — apply it to the
     // latest agentTokenCaps map in main. Await it before advancing a batch: the
     // next hire reuses this mounted modal and must not race a stale config write.
-    if (hireMeta?.tokenCap) {
+    // A clone carries its source's cap the same way.
+    const tokenCap = hireMeta?.tokenCap ?? (!pendingHire ? cloneTemplate?.tokenCap : undefined);
+    if (tokenCap) {
       try {
-        const updated = await window.cth.setAgentTokenCap(id, hireMeta.tokenCap);
+        const updated = await window.cth.setAgentTokenCap(id, tokenCap);
         onConfigChange?.(updated);
       } catch { /* best-effort */ }
     }
@@ -530,6 +568,22 @@ export function AddAgentModal({ onClose, config, onConfigChange }: AddAgentModal
               around the section pane. maxHeight keeps the dialog within the
               viewport (title bar stays pinned). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16, maxHeight: '86vh', overflowY: 'auto' }}>
+            {cloneTemplate && !hireMeta && (
+              <div style={{
+                padding: '6px 10px',
+                background: 'var(--cth-mint-light)',
+                boxShadow: 'inset 0 0 0 1px var(--cth-ink-100)',
+                fontSize: 12,
+                color: 'var(--cth-ink-900)',
+                display: 'flex', flexDirection: 'column', gap: 2
+              }}>
+                <span>
+                  ⧉ {tr('addAgent.cloneOf')} <strong>{cloneTemplate.sourceName}</strong>
+                  {' · '}{basename(cloneTemplate.sourceCwd)}
+                </span>
+                <span>{tr('addAgent.cloneHint')}</span>
+              </div>
+            )}
             {hireMeta && (
               <div style={{
                 padding: '6px 10px',

@@ -16,6 +16,7 @@ import { DEFAULT_ORG_TRIGGER, type OrgTriggerConfig, type WebhookTrigger } from 
 import { isCompactionCommand } from '@shared/providerAutomation';
 import { preferredAgentRole } from '@shared/agentRole';
 import { isInboxNudge } from '@shared/hiveNudge';
+import type { AgentCloneTemplate } from '@shared/agentClone';
 import { refocusAfterRemoval, focusOnLoad, restoreFocus } from './focusMode';
 import { chooseRosterSource } from './rosterSource';
 
@@ -91,6 +92,11 @@ export interface Agent {
    *  Mirrors `RegistryAgent.onHold`; main owns the record, this is the copy the
    *  title bar renders from. */
   onHold?: boolean;
+  /** Operator override for the direct-input lock (see shared/directInput.ts).
+   *  Workers are locked by default: the human talks to the orchestrator, not to
+   *  them. True opens this one agent's terminal/composer/steer to direct typing
+   *  until it is locked again. Durable (persists with the roster). */
+  directInput?: boolean;
   /** When git isolation is enabled, the dedicated worktree path the agent runs
    *  in (its own `agent/<id>` branch); undefined for shared-cwd agents. */
   worktreePath?: string;
@@ -182,6 +188,9 @@ interface State {
   selectedId: string | null;
   feeds: Record<string, string[]>;
   addAgentOpen: boolean;
+  /** When Add Agent was opened as "clone <agent> onto another repo", the
+   *  source's identity/engine/briefing to seed the form from. Cleared on close. */
+  addAgentTemplate: AgentCloneTemplate | null;
   fullscreenAgentId: string | null;
   /** Does the user work in focus mode by default? Persisted as a boolean, and
    *  written ONLY by an explicit toggle. Kept in the store rather than read once
@@ -308,7 +317,7 @@ interface State {
   releaseQueuedMessage: (agentId: string, messageId: string) => void;
   /** Clear an agent's entire pending queue. */
   clearQueue: (agentId: string) => void;
-  setAddAgentOpen: (open: boolean) => void;
+  setAddAgentOpen: (open: boolean, template?: AgentCloneTemplate | null) => void;
   /** Validated manifests waiting for one-at-a-time human review. */
   hireQueue: HireReviewQueue;
   enqueuePendingHires: (manifests: readonly HireManifest[]) => void;
@@ -986,7 +995,8 @@ export const useStore = create<State>((set, get) => ({
       persistRestorable(restorableAgents);
       return { agents, feeds, selectedId, restorableAgents, fullscreenAgentId };
     }),
-  setAddAgentOpen: (open) => set({ addAgentOpen: open }),
+  setAddAgentOpen: (open, template) => set({ addAgentOpen: open, addAgentTemplate: open ? (template ?? null) : null }),
+  addAgentTemplate: null,
   hireQueue: EMPTY_HIRE_QUEUE,
   enqueuePendingHires: (manifests) => set((s) => ({
     hireQueue: enqueueHires(s.hireQueue, manifests)

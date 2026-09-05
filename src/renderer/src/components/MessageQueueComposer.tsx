@@ -10,6 +10,7 @@ import { freeflowRecorder, useFreeflow } from '@/freeflow/recorder';
 import { useTerminalFontSize } from './terminalFontSize';
 import { isComposingKey } from '@shared/imeGuard';
 import { useRtl } from '@/i18n/useDirection';
+import { directInputAllowed } from '@shared/directInput';
 
 const EMPTY_QUEUE: QueuedMessage[] = [];
 
@@ -130,7 +131,11 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
     }
   };
 
-  const canSend = !!text.trim() || attachments.length > 0;
+  // Direct-input lock (shared/directInput.ts): the composer is the human
+  // writing to this agent. Locked workers still receive Michael's work orders
+  // through the same queue — those are enqueued by useHive, not from here.
+  const inputLocked = !directInputAllowed(agent);
+  const canSend = !inputLocked && (!!text.trim() || attachments.length > 0);
 
   const queueIt = () => {
     if (!canSend) return;
@@ -350,7 +355,10 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
           onKeyDown={onKey}
           onPaste={onPaste}
           rows={5}
-          placeholder={idle ? t('queueComposer.messagePlaceholder', { name: agent.name }) : t('queueComposer.busyPlaceholder', { name: agent.name })}
+          disabled={inputLocked}
+          placeholder={inputLocked
+            ? t('inputLock.composerPlaceholder', { name: agent.name })
+            : idle ? t('queueComposer.messagePlaceholder', { name: agent.name }) : t('queueComposer.busyPlaceholder', { name: agent.name })}
           style={{
             width: '100%',
             resize: 'vertical',
@@ -378,7 +386,7 @@ export function MessageQueueComposer({ agent }: MessageQueueComposerProps) {
             pushing Send off-screen. */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, rowGap: 6, flexWrap: 'wrap', minWidth: 0 }}>
           <span style={{ flex: 1 }} />
-          <PixelButton variant="secondary" size="sm" onClick={pickFiles}>
+          <PixelButton variant="secondary" size="sm" onClick={pickFiles} disabled={inputLocked}>
             <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
               <Icon name="plus" /> {t('queueComposer.files')}
             </span>

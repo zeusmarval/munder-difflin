@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { useTranslation } from 'react-i18next';
 import '@xterm/xterm/css/xterm.css';
 import { Icon } from './Icon';
-import { acquireTerminal, attachTerminal, detachTerminal, reflowTerminal } from './terminalPool';
+import { acquireTerminal, attachTerminal, detachTerminal, directInputLockedFor, reflowTerminal } from './terminalPool';
 import {
   DEFAULT_TERMINAL_FONT_SIZE,
   MAX_TERMINAL_FONT_SIZE,
@@ -12,6 +13,8 @@ import {
   useTerminalFontSize
 } from './terminalFontSize';
 import { useAppTheme } from '@/design/theme';
+import { useStore } from '@/store/store';
+import { directInputAllowed } from '@shared/directInput';
 
 // Zoom lives in ./terminalFontSize so anything outside the terminal (the message
 // composer) can scale with it too; these aliases keep the call sites below short.
@@ -125,6 +128,7 @@ export interface PtyTerminalViewProps {
 }
 
 export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFullscreen, fullscreen, embedded }: PtyTerminalViewProps) {
+  const { t } = useTranslation();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const onStreamDataRef = useRef(onStreamData);
   onStreamDataRef.current = onStreamData;
@@ -133,6 +137,9 @@ export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFul
   const fontSize = useTerminalFontSize();
   const fontSizeRef = useRef(fontSize);
   const ptyTheme: PtyTheme = useAppTheme();
+  // Direct-input lock badge. The pool swallows the keystrokes; this is the only
+  // thing that tells you WHY the terminal is not answering your typing.
+  const inputLocked = useStore((s) => !directInputAllowed(s.agents.find((a) => a.ptyId === ptyId)));
   const ptyThemeRef = useRef(ptyTheme);
   ptyThemeRef.current = ptyTheme;
 
@@ -330,6 +337,8 @@ export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFul
           .map((ch) => (SPECIAL.has(ch.charCodeAt(0)) ? BS + ch : ch)).join('');
       });
     if (paths.length === 0) return;
+    // A dropped path is direct input too — a locked worker takes none.
+    if (directInputLockedFor(ptyId)) return;
     // Trailing space separates consecutive drops and lets the user keep typing.
     void window.cth.writePty(ptyId, paths.join(' ') + ' ');
   };
@@ -378,6 +387,21 @@ export function PtyTerminalView({ ptyId, onStreamData, onUserPrompt, onToggleFul
           animation: 'cth-pulse 1200ms steps(2, end) infinite'
         }} />
         live · pty {ptyId}
+        {inputLocked && (
+          <span
+            className="cth-tip cth-tip-wrap"
+            data-tip={t('inputLock.terminalBadgeTip')}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 4,
+              padding: '1px 6px 0', marginLeft: 4,
+              background: 'var(--cth-cream-200)',
+              boxShadow: 'inset 0 0 0 1px var(--cth-ink-100)',
+              color: 'var(--cth-ink-700)'
+            }}
+          >
+            <Icon name="lock" /> {t('inputLock.terminalBadge')}
+          </span>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 2 }}>
           {/* v0.3.4: the theme + enter-fullscreen buttons moved to the TITLE BAR
               (top right) — more accessible, and the theme now darkens the whole

@@ -7,7 +7,7 @@ export type IconName =
   | 'gear' | 'plus' | 'x' | 'check' | 'arrow-right' | 'pause' | 'play'
   | 'bell' | 'folder' | 'terminal' | 'code' | 'web' | 'mcp' | 'sparkle'
   | 'expand' | 'minimize' | 'clock' | 'mic' | 'ledger' | 'info' | 'sidebar'
-  | 'image' | 'edit' | 'git';
+  | 'image' | 'edit' | 'git' | 'lock' | 'unlock';
 
 interface IconDef {
   ink: string;     // primary color path d
@@ -145,6 +145,17 @@ const paths: Record<IconName, IconDef> = {
   sidebar: {
     accentColor: 'var(--cth-ink-300)',
     ink:   'M1 3h14v10H1z M2 4h12v8H2z M2 4h4v8H2z'
+  },
+  // Padlock: a 2px shackle arch over a filled body with the keyhole knocked
+  // out (evenodd). `unlock` swings the shackle open to the right so the two
+  // states read differently even at 16px.
+  lock: {
+    accentColor: 'var(--cth-ink-300)',
+    ink:   'M4 7V2h8v5h-2V4H6v3z M3 7h10v8H3z M7 10h2v3H7z'
+  },
+  unlock: {
+    accentColor: 'var(--cth-ink-300)',
+    ink:   'M8 6V2h7v5h-2V4h-3v2z M3 7h10v8H3z M7 10h2v3H7z'
   }
 };
 
