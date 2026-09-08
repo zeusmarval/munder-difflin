@@ -263,7 +263,11 @@
     },
     "agentsModels": {
       "defaultModel": "Default agent model",
-      "defaultModelDesc": "Every newly spawned Claude agent ({{godName}} included) starts on this model unless picked per-agent. Marked \"· default\" in the model pickers.",
+      "defaultModelDesc": "Every newly spawned Claude worker starts on this model unless picked per-agent. {{godName}} has a picker of its own below. Marked \"· default\" in the model pickers.",
+      "godModel": "{{godName}}'s model",
+      "godModelDesc": "The orchestrator runs on its own engine and ignores the default above. Saved here, the model takes effect the next time {{godName}} starts. To switch the live session right away, use Command Center → monitor → engine → apply.",
+      "godModelEngine": "engine: {{engine}}",
+      "godModelCurrent": "{{model}} (current)",
       "savedNote": "saved — applies to newly spawned agents",
       "saveFailed": "save failed",
       "advanced": "Advanced",

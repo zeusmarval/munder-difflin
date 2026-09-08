@@ -263,7 +263,11 @@
     },
     "agentsModels": {
       "defaultModel": "默认智能体模型",
-      "defaultModelDesc": "每个新生成的 Claude 智能体（含 {{godName}}）默认使用此模型，除非按智能体单独选择。在模型选择器中标记为「· 默认」。",
+      "defaultModelDesc": "每个新生成的 Claude 工作智能体默认使用此模型，除非按智能体单独选择。{{godName}} 在下方有自己的选择器。在模型选择器中标记为「· 默认」。",
+      "godModel": "{{godName}} 的模型",
+      "godModelDesc": "编排者使用自己的引擎，不受上面的默认模型影响。此处保存后，将在 {{godName}} 下次启动时生效。若要立即切换正在运行的会话，请使用指挥中心 → 监控 → 引擎 → 应用。",
+      "godModelEngine": "引擎：{{engine}}",
+      "godModelCurrent": "{{model}}（当前）",
       "savedNote": "已保存——适用于新生成的智能体",
       "saveFailed": "保存失败",
       "advanced": "高级",

@@ -1,6 +1,6 @@
 import { useState, useEffect, type CSSProperties } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AGENT_MODELS, type HarnessConfig } from '@/store/config';
+import { AGENT_MODELS, modelsForProvider, providerPreset, type HarnessConfig } from '@/store/config';
 import { useStore } from '@/store/store';
 import {
   CLONE_NODE_BLURB,
@@ -21,6 +21,7 @@ import { OfficeThemePicker } from './OfficeThemePicker';
 import { McpDefaultsSettings } from './McpDefaultsSettings';
 import { IntegrationsRegistry } from './IntegrationsRegistry';
 import { AiEnginesSettings } from './AiEnginesSettings';
+import { ProviderLogo } from './ProviderLogo';
 import { REALTIME_MODEL } from '@shared/realtimePricing';
 import { RealtimeDevicePicker } from '@/realtime/DevicePicker';
 import { CostHud } from '@/realtime/CostHud';
@@ -300,6 +301,28 @@ export function SettingsModal({ config, onClose, initialSection }: SettingsModal
     setDefaultModelSel(id);
     stage({ defaultModel: id } as Partial<HarnessConfig>);
   };
+  // The orchestrator's OWN model. It never reads defaultModel: the spawn path
+  // special-cases the god onto godProvider/godModel (src/main/index.ts, model
+  // precedence), and the renderer builds his command from config.godModel. Until
+  // now the only picker for it was buried in Command Center → monitor → engine,
+  // while the "default model" text above claimed to cover him — it did not.
+  const godProvider = cfgX.godProvider ?? 'claude';
+  const [godModelSel, setGodModelSel] = useState<string | undefined>(
+    cfgX.godModel ?? providerPreset(godProvider).recommendedOrchestratorModel
+  );
+  const saveGodModel = (id: string): void => {
+    setGodModelSel(id);
+    stage({ godModel: id } as Partial<HarnessConfig>);
+  };
+  // Only entries that name a real model: a no-flag "CLI default" would resolve
+  // to whatever the CLI picks, which this screen could not show. A configured
+  // id the catalog no longer lists still gets a chip so the selection is visible.
+  const godModelOptions = (() => {
+    const known = modelsForProvider(godProvider).filter((m) => m.id);
+    return godModelSel && !known.some((m) => m.id === godModelSel)
+      ? [...known, { id: godModelSel, label: t('settings.agentsModels.godModelCurrent', { model: godModelSel }) }]
+      : known;
+  })();
   const [maxTurnsVal, setMaxTurnsVal] = useState<string>(cfgX.maxTurns != null ? String(cfgX.maxTurns) : '');
   const maxTurnsPatch = (): Partial<HarnessConfig> => {
     const n = maxTurnsVal.trim() === '' ? undefined : Number(maxTurnsVal);
@@ -1212,6 +1235,40 @@ export function SettingsModal({ config, onClose, initialSection }: SettingsModal
                                   fontFamily: 'var(--cth-font-ui)', fontSize: 12, color: 'var(--cth-ink-900)',
                                   background: defaultModelSel === m.id ? 'var(--cth-sky-light)' : 'var(--cth-cream-100)',
                                   boxShadow: defaultModelSel === m.id ? 'inset 0 0 0 1.5px var(--cth-ink-500)' : 'inset 0 0 0 1px var(--cth-ink-100)'
+                                }}
+                              >{m.label}</button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ height: 1, background: 'var(--cth-ink-300)' }} />
+
+                      {/* The orchestrator's model — separate from the default above
+                          because the god spawns on godModel, never on defaultModel. */}
+                      <div>
+                        <div style={sectionHead}>
+                          {t('settings.agentsModels.godModel', { godName })}
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <span style={{ fontSize: 12, lineHeight: '16px', color: 'var(--cth-ink-500)' }}>
+                            {t('settings.agentsModels.godModelDesc', { godName })}
+                          </span>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--cth-ink-700)' }}>
+                            <ProviderLogo provider={godProvider} size={14} />
+                            {t('settings.agentsModels.godModelEngine', { engine: providerPreset(godProvider).label })}
+                          </span>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {godModelOptions.map((m) => (
+                              <button
+                                key={m.label}
+                                onClick={() => { if (m.id) saveGodModel(m.id); }}
+                                title={m.id}
+                                style={{
+                                  padding: '3px 8px 1px', border: 'none', cursor: 'pointer',
+                                  fontFamily: 'var(--cth-font-ui)', fontSize: 12, color: 'var(--cth-ink-900)',
+                                  background: godModelSel === m.id ? 'var(--cth-lemon-light)' : 'var(--cth-cream-100)',
+                                  boxShadow: godModelSel === m.id ? 'inset 0 0 0 1.5px var(--cth-ink-500)' : 'inset 0 0 0 1px var(--cth-ink-100)'
                                 }}
                               >{m.label}</button>
                             ))}
