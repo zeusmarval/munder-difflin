@@ -12,13 +12,14 @@ const {
   runningAppVersion
 } = loadTs('src/renderer/src/store/config.ts');
 
-/** Every model the pickers offered while the lists were hardcoded TypeScript
- *  arrays, as `[id, label]` pairs — the providers whose full list no other test
- *  pins (provider-config.test.cjs pins codex/grok/kimi/gemini/custom). Moving
- *  the lists into JSON must not change one byte of what a user sees, and these
- *  literals are the only record of what shipped before the move. */
+/** Every model the pickers offer, as `[id, label]` pairs — the providers whose
+ *  full list no other test pins (provider-config.test.cjs pins
+ *  codex/grok/kimi/gemini/custom). The catalog JSON is the source; this pins what
+ *  a user sees so a catalog edit is a deliberate, reviewed change. Claude entries
+ *  track the current generation (Fable 5.1 / Opus 5 / Sonnet 5 / Haiku 4.5). */
 const SHIPPED = {
   claude: [
+    ["claude-fable-5-1", "Fable 5.1"],
     ["claude-fable-5", "Fable 5"],
     ["claude-opus-5", "Opus 5 · 1M"],
     ["claude-opus-4-8", "Opus 4.8"],
@@ -47,18 +48,19 @@ const SHIPPED = {
   ],
   opencode: [
     [undefined, "CLI default"],
-    ["anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5 (Anthropic)"],
+    ["anthropic/claude-opus-5", "Claude Opus 5 (Anthropic)"],
+    ["anthropic/claude-sonnet-5", "Claude Sonnet 5 (Anthropic)"],
     ["anthropic/claude-haiku-4-5", "Claude Haiku 4.5 (Anthropic)"],
     ["openai/gpt-5", "GPT-5 (OpenAI)"],
     ["openai/gpt-5-mini", "GPT-5 mini (OpenAI)"],
-    ["openrouter/anthropic/claude-sonnet-4.5", "Claude Sonnet 4.5 (OpenRouter)"],
+    ["openrouter/anthropic/claude-sonnet-5", "Claude Sonnet 5 (OpenRouter)"],
     ["google/gemini-2.5-pro", "Gemini 2.5 Pro (Google)"],
     ["local/llama3", "Local · OpenAI-compatible (set base-URL)"]
   ],
   crush: [
     [undefined, "Crush default (config)"],
-    ["anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5 (Anthropic)"],
-    ["anthropic/claude-opus-4-1", "Claude Opus (Anthropic)"],
+    ["anthropic/claude-sonnet-5", "Claude Sonnet 5 (Anthropic)"],
+    ["anthropic/claude-opus-5", "Claude Opus 5 (Anthropic)"],
     ["openai/gpt-4o", "GPT-4o (OpenAI)"],
     ["openai/o3", "o3 (OpenAI)"],
     ["gemini/gemini-2.5-pro", "Gemini 2.5 Pro"],
@@ -67,18 +69,18 @@ const SHIPPED = {
   ],
   pi: [
     [undefined, "default"],
-    ["anthropic/claude-sonnet-4-5", "Claude Sonnet 4.5 (Anthropic)"],
-    ["anthropic/claude-opus-4-1", "Claude Opus (Anthropic)"],
+    ["anthropic/claude-sonnet-5", "Claude Sonnet 5 (Anthropic)"],
+    ["anthropic/claude-opus-5", "Claude Opus 5 (Anthropic)"],
     ["openai/gpt-5", "GPT-5 (OpenAI)"],
     ["google/gemini-2.5-pro", "Gemini 2.5 Pro (Google)"],
     ["groq/llama-3.3-70b", "Llama 3.3 70B (Groq)"],
     ["local/llama3", "Local · OpenAI-compatible (set base-URL)"]
   ],
   copilot: [
-    [undefined, "default (Claude Sonnet 4.5)"],
+    [undefined, "CLI default"],
     ["auto", "Auto (Copilot picks)"],
-    ["claude-sonnet-4.5", "Claude Sonnet 4.5"],
-    ["claude-sonnet-4", "Claude Sonnet 4"],
+    ["claude-sonnet-5", "Claude Sonnet 5"],
+    ["claude-opus-5", "Claude Opus 5"],
     ["gpt-5.4", "GPT-5.4"],
     ["gpt-5", "GPT-5"]
   ],

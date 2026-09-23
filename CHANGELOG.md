@@ -6,6 +6,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- **Defaults and pickers follow the current Claude generation.** The orchestrator now defaults
+  to Opus 5 and general workers to Sonnet 5 (both carry the 1M-token window without the
+  `[1m]` alias); the global default model is Fable 5.1, and Fable 5.1 joins the Claude picker.
+  Michael's prep assistant runs on Sonnet 5. The OpenCode, Crush, Pi and Copilot pickers offer
+  the current Anthropic slugs (`anthropic/claude-opus-5`, `anthropic/claude-sonnet-5`,
+  `claude-sonnet-5`) instead of Sonnet 4.5 / Opus 4.1. The Hiring Desk's suggestions and its
+  curated roles move to the same generation, and its sync script reads the app's model catalog
+  instead of the retired hardcoded lists. Existing installs keep whatever model they saved.
+
+### Fixed
+
+- **Offline cost estimates know the Claude 5 prices.** The fallback price table (used only
+  when telemetry is off) priced every Opus at the retired $15 / $75 rate, Sonnet 5 as Sonnet
+  4.6, Haiku 4.5 as Haiku 3.5, and had no row for Fable at all — a Fable agent fell through to
+  the Sonnet row and came out about five times under-costed. Prices now resolve by family and
+  generation, for API ids, dated snapshots, provider slugs and display labels alike.
+- **The context gauge starts at 1M for the Claude 5 family.** Fable, Opus 5 and Sonnet 5 are
+  1M by default, but the initial gauge assumed 200K for any Claude id without `[1m]`, so a
+  fresh agent looked almost full until its first response corrected it. Both the renderer
+  backfill and the proxy-bridge status line now start from the right window.
+
 ## [0.4.6] — 2026-08-27
 
 **The release that speaks your language and updates itself.** The interface runs in Chinese and

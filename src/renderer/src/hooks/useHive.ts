@@ -1,3 +1,4 @@
+import { defaultContextWindow } from '@shared/contextWindow';
 import { useEffect, useRef } from 'react';
 import { useStore, type Agent, type QueuedMessage, type StationKind, type ToolKind } from '@/store/store';
 import {
@@ -580,7 +581,8 @@ export function useHive(config: HarnessConfig | null): void {
         try {
           const ctx = await window.cth.agentContext(a.id);
           if (ctx === null) continue;
-          const hinted = /1m/i.test(a.model ?? '') ? 1_000_000 : 200_000;
+          // Fable / Opus 5 / Sonnet 5 are 1M by default; 4.x needs the [1m] alias.
+          const hinted = defaultContextWindow(a.model);
           const limit = Math.max(hinted, ctx > 200_000 ? 1_000_000 : 0);
           const progress = Math.max(0, Math.min(8, Math.round((ctx / limit) * 8)));
           updateAgent(a.id, { contextTokens: ctx, progress });

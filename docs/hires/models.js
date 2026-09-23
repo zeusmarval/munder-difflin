@@ -1,14 +1,17 @@
 /* AUTO-GENERATED from models.json by scripts/build-data.py — do not edit.
    Update models.json (or run build-data.py --sync-models), then rebuild. */
 window.HIRE_MODELS = {
-  "updated": "2026-06-10",
+  "updated": "2026-09-16",
   "claude": [
+    "claude-fable-5-1",
+    "claude-fable-5",
+    "claude-opus-5",
     "claude-opus-4-8",
     "claude-opus-4-8[1m]",
+    "claude-sonnet-5",
     "claude-sonnet-4-6",
-    "claude-haiku-4-5-20251001",
-    "claude-fable-5",
-    "claude-sonnet-4-6[1m]"
+    "claude-sonnet-4-6[1m]",
+    "claude-haiku-4-5-20251001"
   ],
   "antigravity": [
     "Gemini 3.1 Pro (High)",

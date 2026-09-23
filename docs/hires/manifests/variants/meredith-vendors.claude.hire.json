@@ -6,7 +6,7 @@
   "character": "meredith",
   "accent": "peach",
   "provider": "claude",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "capabilities": [
     "dependencies",
     "security",

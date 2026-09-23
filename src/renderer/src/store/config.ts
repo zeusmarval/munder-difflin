@@ -151,10 +151,10 @@ export interface HarnessConfig {
   triggersMigratedV1?: boolean;
 }
 
-/** The Sonnet model with the 1M-token context window — used for Michael's prep
- *  assistant (cheap, large-context context gathering). Mirrors ASSISTANT_MODEL
- *  in src/main/assistant.ts; keep the two in sync. */
-export const ASSISTANT_MODEL = 'claude-sonnet-4-6[1m]';
+/** The Sonnet model used for Michael's prep assistant (cheap, large-context
+ *  context gathering). Sonnet 5 carries the 1M-token window by default, so no
+ *  `[1m]` alias is needed. Must stay an entry of the Claude catalog list. */
+export const ASSISTANT_MODEL = 'claude-sonnet-5';
 
 export interface ModelOption {
   /** undefined = use the CLI default (no --model flag) */
@@ -198,7 +198,8 @@ interface ModelCatalog {
  *  What the arrays used to say — kept, because it explains why the entries look
  *  the way they do:
  *
- *  - claude: `[1m]` selects the 1M-token context-window variant. The list
+ *  - claude: `[1m]` selects the 1M-token context-window variant of the 4.x
+ *    generation; the 5 family (Fable, Opus 5, Sonnet 5) is 1M by default. The list
  *    deliberately has NO "pass no --model flag" entry: every option names a real
  *    model, because the whole reason to open this picker is to know which model
  *    an agent is on, and a no-flag option resolves to whatever Claude Code

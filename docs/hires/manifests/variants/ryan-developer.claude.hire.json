@@ -6,7 +6,7 @@
   "character": "ryan",
   "accent": "mint",
   "provider": "claude",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5",
   "commandFlags": [
     "--max-turns",
     "100"

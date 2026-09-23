@@ -3,9 +3,10 @@
 
   python3 scripts/build-data.py                regenerate manifests/variants/,
                                                manifests-data.js, models.js
-  python3 scripts/build-data.py --sync-models  also scrape upstream's config.ts for
-                                               model ids and merge them into
-                                               models.json first (additive merge)
+  python3 scripts/build-data.py --sync-models  also read upstream's model catalog
+                                               (src/shared/modelCatalog.json) and
+                                               merge its ids into models.json first
+                                               (additive merge)
 
 manifests/<slug>.hire.json is the SOURCE OF TRUTH for each role; per-provider
 variants are derived (model/commandFlags carry over only on the role's native
@@ -15,18 +16,19 @@ may use any model string; suggestions never validate).
 import json, os, re, sys, urllib.request
 
 PROVIDERS = ['claude', 'antigravity', 'codex', 'cursor']
-UPSTREAM_CONFIG = ('https://raw.githubusercontent.com/chaitanyagiri/munder-difflin/'
-                   'main/src/renderer/src/store/config.ts')
+# The app's pickers read src/shared/modelCatalog.json (the hardcoded arrays in
+# config.ts this script used to scrape are gone), so sync from the catalog.
+UPSTREAM_CATALOG = ('https://raw.githubusercontent.com/chaitanyagiri/munder-difflin/'
+                    'main/src/shared/modelCatalog.json')
 
-# ── optional: sync models.json from upstream's hardcoded lists ──────────────
+# ── optional: sync models.json from upstream's model catalog ────────────────
 if '--sync-models' in sys.argv:
-    src = urllib.request.urlopen(UPSTREAM_CONFIG, timeout=15).read().decode()
-    def block(name):
-        m = re.search(name + r'[^=]*=\s*\[(.*?)\];', src, re.S)
-        return re.findall(r"id:\s*'([^']+)'", m.group(1)) if m else []
+    catalog = json.loads(urllib.request.urlopen(UPSTREAM_CATALOG, timeout=15).read().decode())
+    def block(prov):
+        return [m['id'] for m in catalog.get('providers', {}).get(prov, []) if m.get('id')]
     models = json.load(open('models.json'))
-    for prov, name in [('claude', 'AGENT_MODELS'), ('antigravity', 'ANTIGRAVITY_MODELS')]:
-        ups = block(name)
+    for prov in ['claude', 'antigravity']:
+        ups = block(prov)
         local_only = [m for m in models.get(prov, []) if m not in ups]
         models[prov] = ups + local_only
         print(f'{prov}: {len(ups)} upstream + {len(local_only)} local-only')
@@ -34,7 +36,7 @@ if '--sync-models' in sys.argv:
     models['updated'] = datetime.date.today().isoformat()
     with open('models.json', 'w') as out:
         json.dump(models, out, indent=2, ensure_ascii=False); out.write('\n')
-    print('models.json synced from upstream config.ts')
+    print('models.json synced from upstream modelCatalog.json')
 
 # ── manifests → variants + manifests-data.js ────────────────────────────────
 os.makedirs('manifests/variants', exist_ok=True)

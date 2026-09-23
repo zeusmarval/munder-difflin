@@ -6,7 +6,7 @@
   "character": "pam",
   "accent": "lilac",
   "provider": "claude",
-  "model": "claude-opus-4-8",
+  "model": "claude-opus-5",
   "commandFlags": [
     "--max-turns",
     "120"

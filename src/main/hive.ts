@@ -2974,10 +2974,15 @@ const API = process.env.HIVE_PROXY_API === 'anthropic' ? 'anthropic' : 'openai';
 
 function trimSlash(s) { while (s.length && s.charAt(s.length - 1) === '/') s = s.slice(0, -1); return s; }
 
-// Per-model context-window size for the Status gauge; fallback 200k.
+// Per-model context-window size for the Status gauge; fallback 200k. Mirrors
+// src/shared/contextWindow.ts by hand (this shim is a standalone script): the
+// Claude 5 family — Fable / Mythos, Opus 5, Sonnet 5 — is 1M by default, the
+// 4.x generation only with the [1m] alias.
 function ctxSize(model) {
   const m = String(model || '').toLowerCase();
   if (m.indexOf('[1m]') !== -1 || m.indexOf('-1m') !== -1) return 1000000;
+  if (m.indexOf('fable') !== -1 || m.indexOf('mythos') !== -1) return 1000000;
+  if (m.indexOf('claude-opus-5') !== -1 || m.indexOf('claude-sonnet-5') !== -1) return 1000000;
   if (m.indexOf('claude') !== -1) return 200000;
   if (m.indexOf('gpt-4o') !== -1 || m.indexOf('gpt-4.1') !== -1 || m.indexOf('o1') !== -1 || m.indexOf('o3') !== -1) return 128000;
   if (m.indexOf('qwen') !== -1) return 262144;
