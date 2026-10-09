@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./package-lock.json)",
+      "Read(./docs/media/**)",
+      "Read(./docs/hires/manifests-data.js)",
+      "Read(./out/**)",
+      "Read(./dist/**)",
+      "Read(./.claude/skills/**/assets/**)"
+    ]
+  }
+}
