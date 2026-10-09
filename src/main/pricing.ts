@@ -26,26 +26,32 @@ export interface ModelPrice {
   cacheWritePerM: number;
 }
 
-/** A list-price row: cache reads bill at 10 % of input, cache writes (5-minute
- *  TTL) at 125 %. Approximate, fallback-only — the live path uses Claude's own
- *  per-model cost, so small drift here is harmless. */
-function listPrice(inputPerM: number, outputPerM: number): ModelPrice {
+/** A list-price row. Cache writes (5-minute TTL) bill at 125 % of input; cache
+ *  reads default to 10 % of input, but newer models list their own, lower read
+ *  rate (Fable 5.1, Opus 5.5), so it can be given explicitly. Approximate,
+ *  fallback-only — the live path uses Claude's own per-model cost, so small
+ *  drift here is harmless. */
+function listPrice(inputPerM: number, outputPerM: number, cacheReadPerM = inputPerM * 0.1): ModelPrice {
   return {
     inputPerM,
     outputPerM,
-    cacheReadPerM: inputPerM * 0.1,
+    cacheReadPerM,
     cacheWritePerM: inputPerM * 1.25
   };
 }
 
 // Anthropic list prices, USD per million tokens, by family and generation.
-/** Fable 5 / 5.1 and Mythos 5 / 5.1 — the tier above Opus. */
+/** Fable 5 and Mythos 5 — the tier above Opus. */
 const FABLE: ModelPrice = listPrice(10, 50);
+/** Fable 5.1 and Mythos 5.1: same per-token rate, much cheaper cache reads. */
+const FABLE_5_1: ModelPrice = listPrice(10, 50, 0.25);
+/** Opus 5.5 — cheaper than Opus 5, with cache reads at $0.20. */
+const OPUS_5_5: ModelPrice = listPrice(4, 20, 0.2);
 /** Opus 4.5 through Opus 5 all list at the same rate. */
 const OPUS: ModelPrice = listPrice(5, 25);
 /** Opus 4.1 and older — the legacy $15 / $75 tier. */
 const OPUS_LEGACY: ModelPrice = listPrice(15, 75);
-/** Sonnet 5. */
+/** Sonnet 5 and Sonnet 5.5 (same list price). */
 const SONNET_5: ModelPrice = listPrice(2, 10);
 /** Sonnet 4.6 and older (4.5, 4, 3.7, …). */
 const SONNET: ModelPrice = listPrice(3, 15);
@@ -68,9 +74,9 @@ export function normalizeModel(model: string | undefined | null): string {
 }
 
 /** Family + generation parsed out of any of the id shapes the harness sees:
- *  the API id (`claude-opus-4-8`, `claude-sonnet-5`, `claude-fable-5-1`), a
+ *  the API id (`claude-opus-4-8`, `claude-sonnet-5-5`, `claude-fable-5-1`), a
  *  dated snapshot (`claude-haiku-4-5-20251001`), a provider slug
- *  (`anthropic/claude-opus-5`, `claude-sonnet-4.5`), a display label
+ *  (`anthropic/claude-opus-5-5`, `claude-sonnet-5.5`), a display label
  *  (`Claude Opus 4.6 (Thinking)`) or the pre-4 order (`claude-3-5-sonnet`).
  *  `major` is 0 when the id names no generation (the 3.x-era order). */
 function parseModel(model: string): { family: string; major: number; minor: number } | null {
@@ -95,8 +101,9 @@ export function priceFor(model: string | undefined | null): ModelPrice {
   switch (family) {
     case 'fable':
     case 'mythos':
-      return FABLE;
+      return major > 5 || (major === 5 && minor >= 1) ? FABLE_5_1 : FABLE;
     case 'opus':
+      if (major > 5 || (major === 5 && minor >= 5)) return OPUS_5_5;
       // The price cut landed with Opus 4.5; 4.1 and older are the legacy tier.
       return major >= 5 || (major === 4 && minor >= 5) ? OPUS : OPUS_LEGACY;
     case 'sonnet':

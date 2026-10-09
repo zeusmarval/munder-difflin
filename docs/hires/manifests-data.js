@@ -11,7 +11,7 @@ window.HIRES_DATA = [
       "character": "pam",
       "accent": "mint",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "commandFlags": [
         "--max-turns",
         "80"
@@ -39,7 +39,7 @@ window.HIRES_DATA = [
           "character": "pam",
           "accent": "mint",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "commandFlags": [
             "--max-turns",
             "80"
@@ -112,7 +112,7 @@ window.HIRES_DATA = [
       "character": "dwight",
       "accent": "lemon",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "commandFlags": [
         "--max-turns",
         "120"
@@ -140,7 +140,7 @@ window.HIRES_DATA = [
           "character": "dwight",
           "accent": "lemon",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "commandFlags": [
             "--max-turns",
             "120"
@@ -492,7 +492,7 @@ window.HIRES_DATA = [
       "character": "creed",
       "accent": "peach",
       "provider": "claude",
-      "model": "claude-opus-5",
+      "model": "claude-opus-5-5",
       "commandFlags": [
         "--max-turns",
         "100"
@@ -520,7 +520,7 @@ window.HIRES_DATA = [
           "character": "creed",
           "accent": "peach",
           "provider": "claude",
-          "model": "claude-opus-5",
+          "model": "claude-opus-5-5",
           "commandFlags": [
             "--max-turns",
             "100"
@@ -593,7 +593,7 @@ window.HIRES_DATA = [
       "character": "andy",
       "accent": "mint",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "capabilities": [
         "sales",
         "outreach",
@@ -617,7 +617,7 @@ window.HIRES_DATA = [
           "character": "andy",
           "accent": "mint",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "capabilities": [
             "sales",
             "outreach",
@@ -779,7 +779,7 @@ window.HIRES_DATA = [
       "character": "meredith",
       "accent": "peach",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "capabilities": [
         "dependencies",
         "security",
@@ -803,7 +803,7 @@ window.HIRES_DATA = [
           "character": "meredith",
           "accent": "peach",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "capabilities": [
             "dependencies",
             "security",
@@ -1341,7 +1341,7 @@ window.HIRES_DATA = [
       "character": "ryan",
       "accent": "mint",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "commandFlags": [
         "--max-turns",
         "100"
@@ -1370,7 +1370,7 @@ window.HIRES_DATA = [
           "character": "ryan",
           "accent": "mint",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "commandFlags": [
             "--max-turns",
             "100"
@@ -1446,7 +1446,7 @@ window.HIRES_DATA = [
       "character": "pam",
       "accent": "lilac",
       "provider": "claude",
-      "model": "claude-opus-5",
+      "model": "claude-opus-5-5",
       "commandFlags": [
         "--max-turns",
         "120"
@@ -1476,7 +1476,7 @@ window.HIRES_DATA = [
           "character": "pam",
           "accent": "lilac",
           "provider": "claude",
-          "model": "claude-opus-5",
+          "model": "claude-opus-5-5",
           "commandFlags": [
             "--max-turns",
             "120"
@@ -1555,7 +1555,7 @@ window.HIRES_DATA = [
       "character": "michael",
       "accent": "lemon",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "commandFlags": [
         "--max-turns",
         "60"
@@ -1584,7 +1584,7 @@ window.HIRES_DATA = [
           "character": "michael",
           "accent": "lemon",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "commandFlags": [
             "--max-turns",
             "60"
@@ -1870,7 +1870,7 @@ window.HIRES_DATA = [
       "character": "kelly",
       "accent": "coral",
       "provider": "claude",
-      "model": "claude-sonnet-5",
+      "model": "claude-sonnet-5-5",
       "commandFlags": [
         "--max-turns",
         "50"
@@ -1899,7 +1899,7 @@ window.HIRES_DATA = [
           "character": "kelly",
           "accent": "coral",
           "provider": "claude",
-          "model": "claude-sonnet-5",
+          "model": "claude-sonnet-5-5",
           "commandFlags": [
             "--max-turns",
             "50"

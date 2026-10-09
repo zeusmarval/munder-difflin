@@ -15,9 +15,18 @@ test('the Claude 5 family prices by tier, Fable included', () => {
   assert.deepEqual(inOut('claude-fable-5-1'), [10, 50]);
   assert.deepEqual(inOut('claude-fable-5'), [10, 50]);
   assert.deepEqual(inOut('claude-mythos-5-1'), [10, 50]);
+  assert.deepEqual(inOut('claude-opus-5-5'), [4, 20]);
   assert.deepEqual(inOut('claude-opus-5'), [5, 25]);
+  assert.deepEqual(inOut('claude-sonnet-5-5'), [2, 10]);
   assert.deepEqual(inOut('claude-sonnet-5'), [2, 10]);
   assert.deepEqual(inOut('claude-haiku-4-5-20251001'), [1, 5]);
+});
+
+test('newer models carry their own cache-read rate', () => {
+  assert.equal(priceFor('claude-opus-5-5').cacheReadPerM, 0.2);
+  assert.equal(priceFor('claude-fable-5-1').cacheReadPerM, 0.25);
+  assert.equal(priceFor('claude-fable-5').cacheReadPerM, 1);
+  assert.equal(priceFor('claude-opus-5-5').cacheWritePerM, 5);
 });
 
 test('the 4.x generation keeps its own rates', () => {
@@ -40,6 +49,8 @@ test('legacy ids fall on the legacy tiers', () => {
 
 test('provider slugs and display labels resolve like the API id', () => {
   assert.deepEqual(inOut('anthropic/claude-opus-5'), [5, 25]);
+  assert.deepEqual(inOut('anthropic/claude-opus-5.5'), [4, 20]); // OpenRouter / Copilot dotted form
+  assert.deepEqual(inOut('claude-opus-5.5'), [4, 20]);
   assert.deepEqual(inOut('openrouter/anthropic/claude-sonnet-5'), [2, 10]);
   assert.deepEqual(inOut('claude-sonnet-4.5'), [3, 15]); // Copilot's dotted form
   assert.deepEqual(inOut('claude-sonnet-5-thinking-high'), [2, 10]); // Cursor

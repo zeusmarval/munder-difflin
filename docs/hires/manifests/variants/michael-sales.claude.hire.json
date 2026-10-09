@@ -6,7 +6,7 @@
   "character": "michael",
   "accent": "lemon",
   "provider": "claude",
-  "model": "claude-sonnet-5",
+  "model": "claude-sonnet-5-5",
   "commandFlags": [
     "--max-turns",
     "60"

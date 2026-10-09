@@ -17,7 +17,7 @@ and imported into anyone's office with one click.
   "character": "pam",
   "accent": "mint",
   "provider": "claude",
-  "model": "claude-sonnet-5",
+  "model": "claude-sonnet-5-5",
   "commandFlags": ["--max-turns", "80"],
   "capabilities": ["docs", "writing", "markdown"],
   "isolate": false,

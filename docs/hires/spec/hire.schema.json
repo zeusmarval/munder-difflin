@@ -47,7 +47,7 @@
       "type": "string",
       "maxLength": 80,
       "pattern": "^[A-Za-z0-9 ._()\\[\\]/:@+-]{1,80}$",
-      "description": "Model id/label for the provider, e.g. \"claude-sonnet-5\" or \"Gemini 3.1 Pro (High)\". Restricted charset: it goes onto the spawn command line, so shell metacharacters are rejected."
+      "description": "Model id/label for the provider, e.g. \"claude-sonnet-5-5\" or \"Gemini 3.1 Pro (High)\". Restricted charset: it goes onto the spawn command line, so shell metacharacters are rejected."
     },
     "commandFlags": {
       "type": "array",

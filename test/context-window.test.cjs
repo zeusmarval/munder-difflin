@@ -7,7 +7,7 @@ const loadTs = require('./load-ts.cjs');
 const { defaultContextWindow, CONTEXT_1M, CONTEXT_200K } = loadTs('src/shared/contextWindow.ts');
 
 test('the Claude 5 family is 1M by default, no alias needed', () => {
-  for (const id of ['claude-fable-5-1', 'claude-fable-5', 'claude-mythos-5-1', 'claude-opus-5', 'claude-sonnet-5']) {
+  for (const id of ['claude-fable-5-1', 'claude-fable-5', 'claude-mythos-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-sonnet-5-5', 'claude-sonnet-5', 'claude-opus-5.5']) {
     assert.equal(defaultContextWindow(id), CONTEXT_1M, id);
   }
 });

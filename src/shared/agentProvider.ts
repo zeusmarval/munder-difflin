@@ -179,10 +179,10 @@ export const AGENT_PROVIDER_PRESETS: AgentProviderPreset[] = [
     autoFlag: '--permission-mode bypassPermissions',
     hiveAware: true,
     canReceiveInbox: true,
-    // Opus 5 carries the 1M context window by default (no `[1m]` alias needed,
+    // Opus 5.5 carries the 1M context window by default (no `[1m]` alias needed,
     // unlike the 4.x generation) — matches the "give Michael a bigger model"
     // advisory and the Recommended tag on the orchestrator picker.
-    recommendedOrchestratorModel: 'claude-opus-5',
+    recommendedOrchestratorModel: 'claude-opus-5-5',
     resumeFlag: '--resume',
     // Official Claude Code install (npm global). Used by the missing-CLI auto-install.
     installCommand: 'npm install -g @anthropic-ai/claude-code',
@@ -485,7 +485,7 @@ export const AGENT_PROVIDER_PRESETS: AgentProviderPreset[] = [
     // `bridge` is set (NOT the legacy hookBridge) — bridgeOf returns preset.bridge
     // first, so a hookBridge:'pi' would be dead weight + force a second union widening.
     bridge: { kind: 'hooks', shim: 'pi' },
-    recommendedOrchestratorModel: 'anthropic/claude-sonnet-5',
+    recommendedOrchestratorModel: 'anthropic/claude-sonnet-5-5',
     // god-eligible. Live runtime (whether the extension auto-continues from agent_end,
     // or we lean on the renderer idle nudge) is UNVERIFIED pending keys. Renderer nudge
     // is the guaranteed drain fallback either way.
@@ -513,10 +513,10 @@ export const AGENT_PROVIDER_PRESETS: AgentProviderPreset[] = [
     autoModeFlag: '-s --allow-all-tools --no-ask-user',
     autoFlag: '-s --allow-all-tools --no-ask-user',
     supportsModel: true,
-    modelFlag: '--model', // e.g. claude-sonnet-5, gpt-5.4, or 'auto'
+    modelFlag: '--model', // e.g. claude-sonnet-5.5, gpt-5.4, or 'auto'
     hiveAware: false, // no --append-system-prompt/--settings; protocol rides in via -p
     initialPromptFlag: '-p', // copilot -p "<orchestrator/worker brief>" runs it non-interactively
-    recommendedOrchestratorModel: 'claude-sonnet-5', // Copilot's Claude id; user may pick gpt-5.4
+    recommendedOrchestratorModel: 'claude-sonnet-5.5', // Copilot's Claude id (dotted); user may pick gpt-5.4
     // Copilot supports session resume by id (`--resume=<id>`); attached only when a
     // prior session id was recorded (no hook bridge captures it yet → best-effort).
     resumeFlag: '--resume',
