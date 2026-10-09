@@ -59,6 +59,11 @@ export class HookServer {
    *  get_agent_detail / list_agents) can report "how full is each agent's context"
    *  without depending on a renderer round-trip. */
   private contextById = new Map<string, { tokens: number; limit: number; ts: number }>();
+  /** agentId → what this session's context was last handed (roster signature,
+   *  standing goal). Both are re-sent on a prompt only when they changed, so an
+   *  unchanged copy is not appended to the transcript on every turn. Reset on
+   *  SessionStart (fresh, resumed or compacted context) and on a new session id. */
+  private injected = new Map<string, { session?: string; rosterKey?: string; goal?: string }>();
 
   constructor(
     private hive: HiveManager,
@@ -257,30 +262,46 @@ export class HookServer {
       steer = this.control.takeSteer(agentId) ?? null;
     }
 
+    // Context the session must carry: what it was last handed, reset whenever the
+    // context itself is new (SessionStart covers startup, resume, /clear and
+    // compaction; a changed session id covers a restart this map never saw).
+    const promptBoundary = event === 'SessionStart' || event === 'UserPromptSubmit';
+    let sent = agentId ? this.injected.get(agentId) : undefined;
+    if (agentId && promptBoundary && (event === 'SessionStart' || !sent || sent.session !== p.session_id)) {
+      sent = { session: p.session_id };
+      this.injected.set(agentId, sent);
+    }
+
     // Keep god's roster CURRENT. fleet.json is always fresh on disk, but god's
     // context is not: after a restart it resumes a transcript describing the old
     // floor and messages agents that are long gone. Push the live roster in as
-    // additionalContext at the start of each session and on every prompt, so god
-    // knows the floor all the time instead of only when it remembers to Read.
+    // additionalContext at the start of each session, and on a prompt whenever
+    // the floor changed, so god knows the floor without remembering to Read.
     // God-only and one line — every other agent is unaffected.
-    const wantsRoster = (event === 'SessionStart' || event === 'UserPromptSubmit')
-      && !!agentId && this.hive.isGod(agentId);
     // Hand the roster the LIVE context-window occupancy (contextById) so each
     // agent line can carry a `ctx NN%` — god then sees whose context is nearly
     // full when it routes work, instead of guessing from cumulative token spend.
-    const roster = wantsRoster
-      ? this.hive.rosterContext((id) => this.contextFor(id))
-      : null;
+    let roster: string | null = null;
+    if (promptBoundary && sent && agentId && this.hive.isGod(agentId)) {
+      const ctxOf = (id: string): { tokens: number; limit: number } | undefined => this.contextFor(id);
+      const key = this.hive.rosterKey(ctxOf);
+      if (key && key !== sent.rosterKey) {
+        roster = this.hive.rosterContext(ctxOf);
+        if (roster) sent.rosterKey = key;
+      }
+    }
 
     // Standing goal (hire Briefing) — durable roster field, re-read every cycle so
     // an Edit Agent save is picked up on the next SessionStart / UserPromptSubmit
     // without restarting the worker. Kept out of --append-system-prompt (volatile-
-    // free cache invariant); lives on the live hook channel instead.
-    const wantsGoal = (event === 'SessionStart' || event === 'UserPromptSubmit') && !!agentId;
-    const goalRaw = wantsGoal ? (this.getStandingGoal?.(agentId) ?? null) : null;
-    const goal = goalRaw
-      ? `<goal>\n${goalRaw}\n</goal>`
-      : null;
+    // free cache invariant); lives on the live hook channel instead. Re-sent only
+    // when the session has not seen this exact text yet.
+    let goal: string | null = null;
+    if (promptBoundary && sent && agentId) {
+      const goalRaw = this.getStandingGoal?.(agentId) ?? null;
+      if (goalRaw && goalRaw !== sent.goal) goal = `<goal>\n${goalRaw}\n</goal>`;
+      sent.goal = goalRaw ?? undefined;
+    }
 
     if (steer || roster || goal) {
       this.emit(agentId, event, p);

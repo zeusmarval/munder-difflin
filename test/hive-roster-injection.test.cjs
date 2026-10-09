@@ -130,14 +130,15 @@ test('rename rejects empty and unknown agents without changing the registry', as
   assert.equal(hive.registry().agents['jim-1'].name, 'Jim');
 });
 
-test('god gets the roster on SessionStart and on every prompt — nobody else does', async (t) => {
+test('god gets the roster on SessionStart and on a prompt only when the floor changed — nobody else does', async (t) => {
   const { hive, fire } = await floor(t);
   snapshot(hive);
 
   const start = await fire('god-1', 'SessionStart');
   assert.match(context(start), /LIVE ROSTER/);
   assert.equal(start.hookSpecificOutput.hookEventName, 'SessionStart');
-  assert.match(context(await fire('god-1', 'UserPromptSubmit')), /LIVE ROSTER/);
+  assert.doesNotMatch(context(await fire('god-1', 'UserPromptSubmit')), /LIVE ROSTER/,
+    'an unchanged floor is not re-sent every turn');
 
   assert.doesNotMatch(context(await fire('jim-1', 'SessionStart')), /LIVE ROSTER/);
   assert.doesNotMatch(context(await fire('jim-1', 'UserPromptSubmit')), /LIVE ROSTER/);
@@ -221,4 +222,70 @@ test('the hold survives a restart, because the registry is the record', async (t
   const reg = JSON.parse(fs.readFileSync(path.join(home, 'hive', 'registry.json'), 'utf8'));
   assert.equal(reg.agents['jim-1'].onHold, true,
     'a hold that evaporated on restart would hand the agent back to Michael silently');
+});
+
+// --- per-turn dedupe ----------------------------------------------------------
+// Each additionalContext lands in the transcript for good, so an unchanged copy
+// re-sent every turn is pure token spend. Re-send only on a change that matters.
+
+test('the roster is re-sent on a prompt when the floor changes, not when counters tick', async (t) => {
+  const { hive, fire } = await floor(t);
+  snapshot(hive);
+  assert.match(context(await fire('god-1', 'SessionStart')), /LIVE ROSTER/);
+
+  // Only tokens, cost and activity moved: nothing god routes on.
+  const fleet = JSON.parse(fs.readFileSync(path.join(hive.root(), 'fleet.json'), 'utf8'));
+  fleet.agents[1].tokens += 50_000;
+  fleet.agents[1].usd += 0.5;
+  fleet.agents[1].lastActiveSecAgo = 250;
+  hive.writeFleetSnapshot(fleet);
+  assert.doesNotMatch(context(await fire('god-1', 'UserPromptSubmit')), /LIVE ROSTER/);
+
+  // A new agent on the floor is a change god must hear about.
+  fleet.agents.push({ id: 'dwight-1', name: 'Dwight', role: 'agent', breaker: 'ok', tokens: 0, usd: 0, lastActiveSecAgo: null, inboxBacklog: 0 });
+  hive.writeFleetSnapshot(fleet);
+  assert.match(context(await fire('god-1', 'UserPromptSubmit')), /dwight-1/);
+  assert.doesNotMatch(context(await fire('god-1', 'UserPromptSubmit')), /LIVE ROSTER/);
+});
+
+test('a ctx band crossing re-sends the roster; a point or two does not', async (t) => {
+  const { hive, fire } = await floor(t);
+  snapshot(hive);
+  await fire('jim-1', 'Status', { context_window: { total_input_tokens: 60_000, context_window_size: 100_000 } });
+  await fire('god-1', 'SessionStart');
+
+  await fire('jim-1', 'Status', { context_window: { total_input_tokens: 62_000, context_window_size: 100_000 } });
+  assert.doesNotMatch(context(await fire('god-1', 'UserPromptSubmit')), /LIVE ROSTER/);
+
+  await fire('jim-1', 'Status', { context_window: { total_input_tokens: 80_000, context_window_size: 100_000 } });
+  assert.match(context(await fire('god-1', 'UserPromptSubmit')), /jim-1[^;]*ctx 80%/);
+});
+
+test('a new session gets the roster again even though the floor did not change', async (t) => {
+  const { hive, server } = await floor(t);
+  snapshot(hive);
+  const fire = (hook_event_name, session_id) => server.handle({ agent_id: 'god-1', hook_event_name, session_id });
+  assert.match(context(await fire('SessionStart', 's1')), /LIVE ROSTER/);
+  assert.match(context(await fire('SessionStart', 's1')), /LIVE ROSTER/, 'compaction starts a fresh context');
+  assert.doesNotMatch(context(await fire('UserPromptSubmit', 's1')), /LIVE ROSTER/);
+  assert.match(context(await fire('UserPromptSubmit', 's2')), /LIVE ROSTER/, 'a session this server never saw starts');
+});
+
+test('the standing goal is sent once per session and again only when edited', async (t) => {
+  const home = tmpHome();
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  const hive = new HiveManager(() => home);
+  await hive.ensureAgent({ id: 'jim-1', name: 'Jim', provider: 'claude', cwd: home });
+  let goal = 'Ship the invoice export.';
+  const server = new HookServer(hive, () => null, () => CONFIG, undefined, undefined, () => goal);
+  const fire = (hook_event_name) => server.handle({ agent_id: 'jim-1', hook_event_name, session_id: 's1' });
+
+  assert.match(context(await fire('SessionStart')), /<goal>\nShip the invoice export\.\n<\/goal>/);
+  assert.doesNotMatch(context(await fire('UserPromptSubmit')), /<goal>/, 'unchanged goal is not repeated');
+
+  goal = 'Ship the invoice export and the CSV import.';
+  assert.match(context(await fire('UserPromptSubmit')), /CSV import/, 'an Edit Agent save still lands on the next prompt');
+  assert.doesNotMatch(context(await fire('UserPromptSubmit')), /<goal>/);
+
+  assert.match(context(await fire('SessionStart')), /<goal>/, 'a compacted or resumed session gets it back');
 });

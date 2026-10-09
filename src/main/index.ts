@@ -27,6 +27,7 @@ import {
 import { HiveManager, type AgentMeta, type HiveMessage, type HiveTask } from './hive';
 import { HookServer } from './hooks';
 import { CircuitBreaker, type BreakerInput } from './breaker';
+import { formatLogEntry } from './logDigest';
 import type { UsageProvider } from './usage';
 import { MemoryManager } from './memory';
 import { KnowledgeManager } from './knowledge';
@@ -1062,7 +1063,7 @@ function buildHeartbeatDigest(quietMs: number, actionable = 0): string {
   const active = Object.entries(reg.agents).filter(([id, a]) => !a.archived && id !== reg.godId);
   const names = active.map(([, a]) => a.name).join(', ') || '—';
   const boardHead = hive.board().split('\n').slice(0, 10).join('\n').trim();
-  const log = hive.logTail(8).map((e) => { try { return JSON.stringify(e); } catch { return ''; } }).filter(Boolean).join('\n');
+  const log = hive.logTail(8).map(formatLogEntry).filter(Boolean).join('\n');
   const withInbox = active.filter(([id]) => hive.inbox(id).length > 0).map(([, a]) => a.name);
   // When real agent/human mail is waiting, lead with an explicit call-to-action
   // instead of the "quiet" line — this beat fired BECAUSE of unread actionable

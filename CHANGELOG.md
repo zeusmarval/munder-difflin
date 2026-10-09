@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Fewer repeated tokens per turn.** The orchestrator's live roster and each agent's standing
+  goal were re-injected on every prompt, so every turn appended another identical copy to the
+  transcript. Both now go in at session start (including after a resume or compaction) and on a
+  prompt only when they change: for the roster, an agent joining or leaving, a role, hold,
+  breaker or inbox change, or a 25-point move in context occupancy; for the goal, an edit. The
+  heartbeat digest's recent log is one short line per event instead of raw JSON.
 - **Defaults and pickers follow the current Claude generation.** The orchestrator now defaults
   to Opus 5.5 and general workers to Sonnet 5.5 (both carry the 1M-token window without the
   `[1m]` alias); the global default model is Fable 5.1. Fable 5.1, Opus 5.5 and Sonnet 5.5 join

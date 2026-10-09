@@ -2323,15 +2323,17 @@ export class HiveManager {
 
   /**
    * A compact, one-shot LIVE ROSTER line built from `fleet.json` — injected into
-   * god's context as `additionalContext` on SessionStart and every
-   * UserPromptSubmit (see HookServer).
+   * god's context as `additionalContext` on SessionStart, and on UserPromptSubmit
+   * when the floor changed (see HookServer).
    *
    * Why: fleet.json/registry.json are always fresh on disk (8s snapshot +
    * archiveOrphanedAgents on boot + PTY-exit archiving), but god's CONTEXT is not.
    * After an app restart god resumes a session whose transcript still describes
    * the OLD floor, and it will happily message agents that no longer exist. It is
    * told to read fleet.json, but "told to" is not "always knows" — so we push the
-   * truth in on every turn instead. One line, so the cost is negligible.
+   * truth in at every session start, and on a prompt whenever rosterKey() says the
+   * floor actually changed (an unchanged roster re-sent every turn only piles up
+   * duplicate copies in god's transcript).
    *
    * `ctxOf` (optional, supplied by HookServer) lets the caller layer the LIVE
    * context-window occupancy on top of the disk snapshot — each agent gets a
@@ -2350,18 +2352,9 @@ export class HiveManager {
     const root = this.root();
     if (!root) return null;
     try {
-      const raw = readFileSync(join(root, 'fleet.json'), 'utf8');
-      const snap = JSON.parse(raw) as {
-        ts?: number;
-        agents?: Array<{
-          id: string; name?: string; role?: string; isGod?: boolean;
-          breaker?: string; tokens?: number; usd?: number;
-          lastTool?: string | null; lastActiveSecAgo?: number | null; inboxBacklog?: number;
-          onHold?: boolean;
-        }>;
-      };
-      const agents = Array.isArray(snap.agents) ? snap.agents : [];
-      if (!agents.length) return null;
+      const snap = this.readFleetSnapshot(root);
+      const agents = snap?.agents ?? [];
+      if (!snap || !agents.length) return null;
 
       const ago = (s: number | null | undefined): string =>
         typeof s !== 'number' ? 'unknown'
@@ -2416,9 +2409,54 @@ export class HiveManager {
             + 'are still running and their terminal is alive, so this is not a reason to archive '
             + 'them or spawn a replacement. The human flips it off when they are done. '
           : '')
-        + 'Route work to someone on this list before spawning anyone new.';
+        + 'Route work to someone on this list before spawning anyone new. '
+        + 'Tokens, cost and activity are as of this snapshot; fleet.json has the live figures.';
     } catch { return null; }
   }
+
+  /**
+   * A signature of the parts of the roster god ROUTES on — who is on the floor,
+   * their role, hold, breaker, inbox and a coarse `ctx` band — without the
+   * figures that move every few seconds (tokens, cost, "active Ns ago", snapshot
+   * age). HookServer re-injects the roster on a prompt only when this changes,
+   * so an unchanged floor costs nothing per turn. null = nothing to inject.
+   */
+  rosterKey(
+    ctxOf?: (agentId: string) => { tokens: number; limit: number } | undefined
+  ): string | null {
+    const root = this.root();
+    if (!root) return null;
+    try {
+      const agents = this.readFleetSnapshot(root)?.agents ?? [];
+      if (!agents.length) return null;
+      return agents.map((a) => {
+        const cw = ctxOf?.(a.id);
+        // 25-point bands: crossing into "nearly full" matters, 61% → 62% does not.
+        const ctxBand = cw && cw.limit > 0 ? Math.min(4, Math.floor((cw.tokens / cw.limit) * 4)) : -1;
+        const recent = typeof a.lastActiveSecAgo === 'number' && a.lastActiveSecAgo < 300;
+        const breaker = a.breaker && a.breaker !== 'ok' && a.breaker !== 'none' ? a.breaker : '';
+        return [a.id, a.name ?? '', a.role ?? '', a.isGod ? 'g' : '', a.onHold ? 'h' : '',
+          breaker, a.inboxBacklog ? 'i' : '', recent ? 'r' : '', ctxBand].join('|');
+      }).join(';');
+    } catch { return null; }
+  }
+
+  /** Parsed fleet.json, or null when it is missing or malformed. */
+  private readFleetSnapshot(root: string): {
+    ts?: number;
+    agents: Array<{
+      id: string; name?: string; role?: string; isGod?: boolean;
+      breaker?: string; tokens?: number; usd?: number;
+      lastTool?: string | null; lastActiveSecAgo?: number | null; inboxBacklog?: number;
+      onHold?: boolean;
+    }>;
+  } | null {
+    try {
+      const snap = JSON.parse(readFileSync(join(root, 'fleet.json'), 'utf8'));
+      return { ts: snap?.ts, agents: Array.isArray(snap?.agents) ? snap.agents : [] };
+    } catch { return null; }
+  }
+
   logTail(n = 200): unknown[] {
     const root = this.root();
     if (!root || !existsSync(join(root, 'log.jsonl'))) return [];
