@@ -19,6 +19,12 @@ All notable changes to this project are documented here. The format is based on
   silently replaced an unread one, or the handled copy in `inbox/.done/`. A name already taken
   by a different message now gets a `~<sender>` suffix (then `~2`, `~3`…) and a `collision`
   log line. The message itself, including its `id`, is unchanged.
+- **Memory-condense aborts say whether they are benign.** `condense-abort` log lines now carry
+  `benign: true` for `not-smaller` (the verify gate refusing a rewrite that saves too little;
+  the file is untouched) and `benign: false` for real failures such as `summarize-failed`. The
+  hidden condense session now runs with telemetry off and no agent identity, so a failed
+  condense can never be counted against an agent by the circuit breaker, even when a dev build
+  inherits an agent's shell environment.
 - **Fewer repeated tokens per turn.** The orchestrator's live roster and each agent's standing
   goal were re-injected on every prompt, so every turn appended another identical copy to the
   transcript. Both now go in at session start (including after a resume or compaction) and on a

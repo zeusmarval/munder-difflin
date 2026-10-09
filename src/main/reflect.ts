@@ -252,7 +252,9 @@ export class MemoryReflector {
   }
 
   private logAbort(id: string, reason: string, detail?: string, extra?: Record<string, unknown>): void {
-    try { this.appendLog({ kind: 'condense-abort', agentId: id, reason, ...(detail ? { detail } : {}), ...extra }); }
+    // `benign` makes the verdict explicit in log.jsonl, so a reader counting
+    // condense-aborts does not mistake the gate doing its job for a failure.
+    try { this.appendLog({ kind: 'condense-abort', agentId: id, reason, benign: isBenignAbort(reason), ...(detail ? { detail } : {}), ...extra }); }
     catch { /* best-effort */ }
   }
 
@@ -282,7 +284,7 @@ export class MemoryReflector {
       command: this.getCommand(),
       // Pure text transform — must never touch the repo or shell out.
       disallowedTools: ['Edit', 'Write', 'NotebookEdit', 'Bash'],
-      env: this.getMemoryEnv(),
+      env: condenseEnv(this.getMemoryEnv()),
       timeoutMs: DEFAULT_TIMEOUT_MS,
     });
 
@@ -296,6 +298,31 @@ export class MemoryReflector {
 }
 
 // ─── pure helpers (the deterministic, unit-testable half) ────────────────────
+
+/** Abort reasons that are the verify gate doing its job, not a failure: the
+ *  original file is untouched and nothing needs fixing. `not-smaller` fires when
+ *  the memory is already near its floor (e.g. right after a /compact). */
+export const BENIGN_CONDENSE_ABORTS: ReadonlySet<string> = new Set(['not-smaller']);
+
+export function isBenignAbort(reason: string): boolean {
+  return BENIGN_CONDENSE_ABORTS.has(reason);
+}
+
+/** Env for the hidden condense session. It is the HARNESS's call, never an
+ *  agent's, so it must not be attributable to one: the circuit breaker counts
+ *  api errors by the OTel `agent.id` attribute and tool use by the agent-id env,
+ *  and a dev build inherits its launching shell — if that shell belonged to an
+ *  agent, every failed condense on the floor would be charged to that agent.
+ *  Telemetry off and identity blanked, whatever the parent environment holds. */
+export function condenseEnv(memEnv: Record<string, string>): Record<string, string> {
+  return {
+    ...memEnv,
+    CLAUDE_CODE_ENABLE_TELEMETRY: '0',
+    OTEL_RESOURCE_ATTRIBUTES: '',
+    AGENT_ID: '',
+    AGENT_NAME: ''
+  };
+}
 
 /** Count level-2 (`## `) headings — `# ` H1 and `### ` deeper headings excluded. */
 export function countSections(text: string): number {
