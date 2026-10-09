@@ -14,6 +14,11 @@ All notable changes to this project are documented here. The format is based on
   ready to resend. System senders without an inbox, and the orchestrator itself, still bounce
   to the orchestrator. The `drop` log line is unchanged, and a new `bounce` line records who
   received the bounce.
+- **Messages with the same id no longer overwrite each other in an inbox.** The inbox file was
+  named after the sender-chosen id, and ids are not unique across senders, so a second message
+  silently replaced an unread one, or the handled copy in `inbox/.done/`. A name already taken
+  by a different message now gets a `~<sender>` suffix (then `~2`, `~3`…) and a `collision`
+  log line. The message itself, including its `id`, is unchanged.
 - **Fewer repeated tokens per turn.** The orchestrator's live roster and each agent's standing
   goal were re-injected on every prompt, so every turn appended another identical copy to the
   transcript. Both now go in at session start (including after a resume or compaction) and on a

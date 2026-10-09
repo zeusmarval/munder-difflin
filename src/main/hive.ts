@@ -1528,8 +1528,39 @@ export class HiveManager {
   private deliver(msg: HiveMessage, toId: string): boolean {
     const inbox = join(this.agentDir(toId), 'inbox');
     if (!existsSync(inbox)) return false; // unknown recipient — the caller reports it
-    this.atomicWriteJson(join(inbox, `${msg.id}.json`), msg);
+    this.atomicWriteJson(join(inbox, `${this.inboxFileName(inbox, msg, toId)}.json`), msg);
     return true;
+  }
+
+  /** File stem for `msg` in `inbox`: its id, unless that name is already taken
+   *  in inbox/ or inbox/.done/ by a DIFFERENT message. The id is chosen by the
+   *  sender and is not unique across senders (15 agents once all sent
+   *  `closing-ack`), so writing `<id>.json` blindly overwrote an unread message,
+   *  or — once the agent moved it — the handled copy in `.done/`. A collision gets
+   *  a `~<sender>` suffix (then `~2`, `~3`…) and a `collision` log line; the
+   *  message itself is untouched. Re-delivering the SAME message keeps its name. */
+  private inboxFileName(inbox: string, msg: HiveMessage, toId: string): string {
+    const taken = (stem: string): HiveMessage | null | undefined => {
+      for (const dir of [inbox, join(inbox, '.done')]) {
+        const p = join(dir, `${stem}.json`);
+        if (!existsSync(p)) continue;
+        try { return JSON.parse(readFileSync(p, 'utf8')) as HiveMessage; } catch { return null; }
+      }
+      return undefined; // free
+    };
+    const same = (m: HiveMessage | null): boolean =>
+      !!m && m.id === msg.id && m.from === msg.from && m.subject === msg.subject && m.body === msg.body;
+    const first = taken(msg.id);
+    if (first === undefined || same(first)) return msg.id;
+    const base = `${msg.id}~${msg.from.replace(/[^A-Za-z0-9._-]/g, '_')}`;
+    let stem = base;
+    for (let n = 2; ; n++) {
+      const cur = taken(stem);
+      if (cur === undefined || same(cur)) break;
+      stem = `${base}~${n}`;
+    }
+    this.appendLog({ kind: 'collision', to: toId, from: msg.from, id: msg.id, file: `${stem}.json` });
+    return stem;
   }
 
   /** Inject a message directly (used by the orchestrator / UI / tests). */
