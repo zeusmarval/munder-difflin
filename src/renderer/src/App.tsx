@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useStore, selectedAgent } from '@/store/store';
 import { startMockLoop, stopMockLoop } from '@/store/mockEvents';
 import type { HarnessConfig } from '@/store/config';
@@ -14,14 +14,13 @@ import { AgentDetailPanel } from '@/components/AgentDetailPanel';
 import { AgentStrip } from '@/components/AgentStrip';
 import { AddAgentModal } from '@/components/AddAgentModal';
 import { MichaelBooting } from '@/components/MichaelBooting';
-import { OnboardingWizard } from '@/components/OnboardingWizard';
 import { HivePicker } from '@/components/HivePicker';
 import { QuitWarningModal, type ClosingTimeState } from '@/components/QuitWarningModal';
 import { CompletionToast } from '@/realtime/CompletionToast';
 import { UpdateToast } from '@/components/UpdateToast';
 import { UpdateBadge } from '@/components/UpdateBadge';
 import { useAppTheme, toggleAppTheme } from '@/design/theme';
-import { SettingsModal, type Section as SettingsSection } from '@/components/SettingsModal';
+import type { Section as SettingsSection } from '@/components/SettingsModal';
 import { PixelPanel } from '@/components/PixelPanel';
 import { PixelButton } from '@/components/PixelButton';
 import { Icon } from '@/components/Icon';
@@ -29,9 +28,14 @@ import { SidebarSplitter } from '@/components/SidebarSplitter';
 import { acquireTerminal, notifyThemeChangeAll } from '@/components/terminalPool';
 import { FullscreenTerminal } from '@/components/FullscreenTerminal';
 import { TaskDetailOverlay } from '@/components/TaskDetailOverlay';
-import { IdePanel } from '@/ide/IdePanel';
 import { useHoldOptionToTalk } from '@/freeflow/holdOption';
 import brandLogo from '@brand/logo.png?url';
+
+// Loaded on first open, not at startup: the IDE pulls in Monaco, and settings and
+// onboarding are large screens most launches never show.
+const IdePanel = lazy(() => import('@/ide/IdePanel').then((m) => ({ default: m.IdePanel })));
+const SettingsModal = lazy(() => import('@/components/SettingsModal').then((m) => ({ default: m.SettingsModal })));
+const OnboardingWizard = lazy(() => import('@/components/OnboardingWizard').then((m) => ({ default: m.OnboardingWizard })));
 
 // Injected at build time from package.json (see electron.vite.config.ts).
 declare const __APP_VERSION__: string;
@@ -258,7 +262,11 @@ export function App() {
 
   if (!config.onboardingComplete) {
     // Just-onboarded users go straight into the hive they set up — skip the picker.
-    return <OnboardingWizard onComplete={(next) => { setConfig(next); setHiveOpened(true); }} />;
+    return (
+      <Suspense fallback={null}>
+        <OnboardingWizard onComplete={(next) => { setConfig(next); setHiveOpened(true); }} />
+      </Suspense>
+    );
   }
 
   // Launch-time hive picker: on reopen, let the user open their current hive,
@@ -488,11 +496,13 @@ export function App() {
       )}
 
       {settingsOpen && (
-        <SettingsModal
-          config={config}
-          initialSection={settingsSection}
-          onClose={() => { setSettingsOpen(false); setSettingsSection(undefined); }}
-        />
+        <Suspense fallback={null}>
+          <SettingsModal
+            config={config}
+            initialSection={settingsSection}
+            onClose={() => { setSettingsOpen(false); setSettingsSection(undefined); }}
+          />
+        </Suspense>
       )}
 
       {quitWarn && (
@@ -510,7 +520,7 @@ export function App() {
       )}
 
       {fullscreenAgentId && <FullscreenTerminal config={config} />}
-      {ideOpen && <IdePanel />}
+      {ideOpen && <Suspense fallback={null}><IdePanel /></Suspense>}
       <TaskDetailOverlay />
     </div>
   );

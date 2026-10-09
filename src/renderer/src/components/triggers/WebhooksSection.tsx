@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { PixelButton } from '../PixelButton';
 import { useStore } from '@/store/store';
@@ -7,11 +7,13 @@ import {
   deleteWebhook, generateWebhookSecret, listWebhooks, newWebhook, saveWebhooks,
   webhooksStatus, type WebhooksStatus
 } from './api';
-import { JsonEditor } from './JsonEditor';
 import {
   Callout, Field, Hint, MiniButton, ModePicker, Muted, SecretField, SubCard, SubHeader,
   Toggle, inputStyle
 } from './ui';
+
+// CodeMirror loads only when the schema editor is expanded.
+const JsonEditor = lazy(() => import('./JsonEditor').then((m) => ({ default: m.JsonEditor })));
 
 /**
  * WEBHOOKS — one inbound HTTP endpoint per caller. Several share one port and
@@ -248,7 +250,9 @@ function WebhookRow({ hook, url, serverRunning, onPatch, onDelete }: {
             )}
             {schemaOpen && (
               <>
-                <JsonEditor value={schemaText} onChange={(v) => { setSchemaText(v); setSchemaError(null); }} />
+                <Suspense fallback={null}>
+                  <JsonEditor value={schemaText} onChange={(v) => { setSchemaText(v); setSchemaError(null); }} />
+                </Suspense>
                 {schemaError && <Callout>{t('webhooksSection.notValidJson', { error: schemaError })}</Callout>}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 6 }}>
                   <PixelButton variant="primary" size="sm" onClick={saveSchema}>

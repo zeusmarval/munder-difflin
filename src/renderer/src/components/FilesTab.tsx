@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { FileTree } from './FileTree';
-import { CodeEditor } from './CodeEditor';
 import { useStore } from '@/store/store';
+
+// CodeMirror and its language packs load with the first file opened, not at startup.
+const CodeEditor = lazy(() => import('./CodeEditor').then((m) => ({ default: m.CodeEditor })));
 
 export interface FilesTabProps {
   cwd: string;
@@ -86,12 +88,14 @@ export function FilesTab({ cwd }: FilesTabProps) {
         }}
       />
       <div style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
-        <CodeEditor
-          root={cwd}
-          filePath={active}
-          onOpenInIde={onOpenInIde}
-          onCopyPath={active ? () => onCopyPath(active) : undefined}
-        />
+        <Suspense fallback={null}>
+          <CodeEditor
+            root={cwd}
+            filePath={active}
+            onOpenInIde={onOpenInIde}
+            onCopyPath={active ? () => onCopyPath(active) : undefined}
+          />
+        </Suspense>
       </div>
     </div>
   );

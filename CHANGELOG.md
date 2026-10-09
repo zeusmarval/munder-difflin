@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The format is based on
   prompt only when they change: for the roster, an agent joining or leaving, a role, hold,
   breaker or inbox change, or a 25-point move in context occupancy; for the goal, an edit. The
   heartbeat digest's recent log is one short line per event instead of raw JSON.
+- **A lighter main process.** Hive changes are committed to the hive's git history in batches
+  (one commit per 2-second burst) by an asynchronous git, instead of a blocking `git add` +
+  `git commit` on every routed message; quitting, resetting and moving the home folder still
+  commit everything first. The roster file is parsed once and re-read only when it changes,
+  and the log tail reads the end of `log.jsonl` instead of the whole, ever-growing file.
+  Claude Code agents export telemetry every 15s / 10s instead of every 5s / 2s.
+- **Faster startup.** The IDE (Monaco), Settings, onboarding and the CodeMirror editors load
+  the first time they open, which cuts the startup bundle from about 12 MB to under 5 MB.
 - **Defaults and pickers follow the current Claude generation.** The orchestrator now defaults
   to Opus 5.5 and general workers to Sonnet 5.5 (both carry the 1M-token window without the
   `[1m]` alias); the global default model is Fable 5.1. Fable 5.1, Opus 5.5 and Sonnet 5.5 join

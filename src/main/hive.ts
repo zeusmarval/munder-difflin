@@ -21,11 +21,12 @@
 import {
   existsSync, mkdirSync, readFileSync, writeFileSync, renameSync,
   readdirSync, statSync, lstatSync, realpathSync, rmSync, appendFileSync,
-  symlinkSync, unlinkSync, copyFileSync, cpSync, chmodSync
+  symlinkSync, unlinkSync, copyFileSync, cpSync, chmodSync,
+  openSync, readSync, closeSync, fstatSync
 } from 'node:fs';
 import { join, dirname, basename, isAbsolute, relative } from 'node:path';
 import { homedir } from 'node:os';
-import { spawnSync, spawn, type ChildProcess } from 'node:child_process';
+import { spawnSync, spawn, execFile, type ChildProcess } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
 import type { AgentUsageSample } from './usage';
 import { COMMAND_GROUPS } from '../shared/claudeCommands';
@@ -194,6 +195,51 @@ const HOP_CAP = 12;
 function sleepSync(ms: number): void {
   const sab = new SharedArrayBuffer(4);
   Atomics.wait(new Int32Array(sab), 0, 0, ms);
+}
+
+/**
+ * The last `n` non-empty lines of a file, read backwards in chunks. log.jsonl is
+ * append-only and never rotated, so reading it whole to keep 8 lines (the
+ * heartbeat) cost more every hour the hive ran.
+ */
+export function readLastLines(path: string, n: number): string[] {
+  const CHUNK = 64 * 1024;
+  const fd = openSync(path, 'r');
+  try {
+    let pos = fstatSync(fd).size;
+    const chunks: Buffer[] = [];
+    let newlines = 0;
+    // One newline more than needed: the first line in the window may be cut.
+    while (pos > 0 && newlines <= n) {
+      const len = Math.min(CHUNK, pos);
+      pos -= len;
+      const buf = Buffer.alloc(len);
+      readSync(fd, buf, 0, len, pos);
+      for (let i = 0; i < len; i++) if (buf[i] === 10) newlines++;
+      chunks.unshift(buf);
+    }
+    // Decode once, after joining, so a multi-byte character split across two
+    // chunks is not mangled.
+    const lines = Buffer.concat(chunks).toString('utf8').split('\n').map((l) => l.replace(/\r$/, ''));
+    if (pos > 0) lines.shift(); // partial first line
+    return lines.filter(Boolean).slice(-n);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Hive mutations closer together than this share one git commit. */
+const COMMIT_DEBOUNCE_MS = 2000;
+
+/** One commit message for a batch: the message itself when alone, otherwise a
+ *  count subject with the distinct messages listed in the body. */
+export function commitMessage(messages: string[]): string {
+  const distinct = [...new Set(messages)];
+  if (distinct.length === 1) return distinct[0];
+  const MAX_LINES = 20;
+  const body = distinct.slice(0, MAX_LINES).map((m) => `- ${m}`);
+  if (distinct.length > MAX_LINES) body.push(`- … ${distinct.length - MAX_LINES} more`);
+  return `hive: ${messages.length} changes\n\n${body.join('\n')}`;
 }
 
 /** Filesystem- and sort-safe timestamp, e.g. 2026-05-30T14-03-11-123Z. */
@@ -885,8 +931,10 @@ export class HiveManager {
       env.OTEL_LOGS_EXPORTER = 'otlp';
       env.OTEL_EXPORTER_OTLP_PROTOCOL = 'http/json';
       env.OTEL_EXPORTER_OTLP_ENDPOINT = this._otelEndpoint;
-      env.OTEL_METRIC_EXPORT_INTERVAL = '5000'; // 5s — near-live without spamming
-      env.OTEL_LOGS_EXPORT_INTERVAL = '2000';
+      // 15s / 10s: a slower export batches the same counters and events, so it
+      // loses nothing but latency; every agent was posting to the collector every 2-5s.
+      env.OTEL_METRIC_EXPORT_INTERVAL = '15000';
+      env.OTEL_LOGS_EXPORT_INTERVAL = '10000';
       env.OTEL_RESOURCE_ATTRIBUTES = `agent.id=${meta.id},agent.name=${meta.name}`;
     }
     const args: string[] = [];
@@ -1676,10 +1724,27 @@ export class HiveManager {
 
   // — read helpers (for IPC / UI) —
 
+  /** Last parsed registry.json, keyed by the file's mtime + size. */
+  private registryCache: { path: string; mtimeMs: number; size: number; data: Registry } | null = null;
+
+  /**
+   * The roster. Called from hot paths (every routed message, every hook,
+   * heartbeat scans), so the parsed file is cached and re-read only when its
+   * mtime or size moves; our own writes drop the cache outright. Callers get a
+   * private copy, because many mutate the result and write it back.
+   */
   registry(): Registry {
     const root = this.root();
     if (!root) return { godId: null, agents: {} };
-    return this.readJson<Registry>(join(root, 'registry.json'), { godId: null, agents: {} });
+    const p = join(root, 'registry.json');
+    let st: { mtimeMs: number; size: number };
+    try { st = statSync(p); } catch { this.registryCache = null; return { godId: null, agents: {} }; }
+    const c = this.registryCache;
+    if (c && c.path === p && c.mtimeMs === st.mtimeMs && c.size === st.size) return structuredClone(c.data);
+    const data = this.readJson<Registry | null>(p, null);
+    if (!data) { this.registryCache = null; return { godId: null, agents: {} }; }
+    this.registryCache = { path: p, mtimeMs: st.mtimeMs, size: st.size, data: structuredClone(data) };
+    return data;
   }
   board(): string {
     const root = this.root();
@@ -2459,9 +2524,9 @@ export class HiveManager {
 
   logTail(n = 200): unknown[] {
     const root = this.root();
-    if (!root || !existsSync(join(root, 'log.jsonl'))) return [];
-    const lines = readFileSync(join(root, 'log.jsonl'), 'utf8').trim().split('\n').filter(Boolean);
-    return lines.slice(-n).map((l) => { try { return JSON.parse(l); } catch { return { raw: l }; } });
+    if (!root || n <= 0 || !existsSync(join(root, 'log.jsonl'))) return [];
+    const lines = readLastLines(join(root, 'log.jsonl'), n);
+    return lines.map((l) => { try { return JSON.parse(l); } catch { return { raw: l }; } });
   }
 
   private listMessages(dir: string): HiveMessage[] {
@@ -2522,9 +2587,11 @@ export class HiveManager {
     try { return JSON.parse(readFileSync(p, 'utf8')) as T; } catch { return fallback; }
   }
   private writeJson(p: string, data: unknown): void {
+    if (this.registryCache?.path === p) this.registryCache = null;
     writeFileSync(p, JSON.stringify(data, null, 2), 'utf8');
   }
   private atomicWriteJson(p: string, data: unknown): void {
+    if (this.registryCache?.path === p) this.registryCache = null;
     const tmp = `${p}.tmp-${shortRand()}`;
     writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
     renameSync(tmp, p);
@@ -2536,6 +2603,16 @@ export class HiveManager {
       cwd, encoding: 'utf8', timeout: 8000
     });
     return { ok: res.status === 0, out: res.stdout ?? '', err: res.stderr ?? '' };
+  }
+
+  private gitAsync(args: string[], cwd: string): Promise<{ ok: boolean; out: string; err: string }> {
+    return new Promise((resolve) => {
+      execFile('git', ['-c', 'commit.gpgsign=false', '-c', 'user.name=Hive', '-c', 'user.email=hive@local', ...args], {
+        cwd, encoding: 'utf8', timeout: 8000, windowsHide: true
+      }, (error, stdout, stderr) => {
+        resolve({ ok: !error, out: stdout ?? '', err: stderr ?? '' });
+      });
+    });
   }
 
   /** Has the one-time cost-ledger untrack pass run in this process yet? */
@@ -2598,21 +2675,91 @@ export class HiveManager {
     console.warn('[hive] untracked previously-committed Codex homes from the hive repo');
   }
 
-  /** Commit all hive changes. No-op if there is nothing staged. */
+  /** Messages waiting for the next batched commit, and the root they belong to. */
+  private pendingCommit: { root: string; messages: string[] } | null = null;
+  private commitTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The async commit in flight, so drainCommits() can wait for it. */
+  private commitInFlight: Promise<void> | null = null;
+
+  /**
+   * Record hive changes in the hive's git history. Batched and asynchronous: the
+   * hive mutates on every routed message, role change and session id, and a
+   * synchronous `git add -A` + `git commit` per mutation blocked the main
+   * process (IPC, hooks, PTY plumbing) for the length of two git runs each time.
+   * Messages within COMMIT_DEBOUNCE_MS share one commit off the event loop.
+   * Teardown paths call flushCommitsSync() / drainCommits() so nothing is lost.
+   */
   commit(message: string): void {
     const root = this.root();
     if (!root || !existsSync(join(root, '.git'))) return;
+    // The home moved under a pending batch: settle it against its own root first.
+    if (this.pendingCommit && this.pendingCommit.root !== root) this.flushCommitsSync();
+    if (!this.pendingCommit) this.pendingCommit = { root, messages: [] };
+    this.pendingCommit.messages.push(message);
+    if (!this.commitTimer) {
+      this.commitTimer = setTimeout(() => this.startPendingCommit(), COMMIT_DEBOUNCE_MS);
+      this.commitTimer.unref?.();
+    }
+  }
+
+  private startPendingCommit(): void {
+    this.commitTimer = null;
+    // One git writer at a time; the batch waits for the running one and follows it.
+    if (this.commitInFlight || !this.pendingCommit) return;
+    const batch = this.pendingCommit;
+    this.pendingCommit = null;
+    this.commitInFlight = this.commitAsync(batch.root, commitMessage(batch.messages))
+      .catch(() => { /* best-effort — the next mutation's add -A picks it up */ })
+      .finally(() => {
+        this.commitInFlight = null;
+        if (this.pendingCommit && !this.commitTimer) this.startPendingCommit();
+      });
+  }
+
+  private async commitAsync(root: string, message: string): Promise<void> {
+    // One-time per process; sync is fine for a single probe at first commit.
     this.untrackCostLedger(root);
     this.untrackCodexHomes(root);
     for (let attempt = 0; attempt < 5; attempt++) {
       this.clearStaleLock(root);
-      const add = this.git(['add', '-A'], root);
-      const commit = this.git(['commit', '-q', '-m', message], root);
+      const add = await this.gitAsync(['add', '-A'], root);
+      const commit = await this.gitAsync(['commit', '-q', '-m', message], root);
+      if (commit.ok) return;
+      if (/nothing to commit/i.test(commit.out + commit.err)) return;
+      if (!add.ok || /index\.lock/i.test(commit.err)) {
+        await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+        continue;
+      }
+      return; // a non-lock failure — give up quietly, the next mutation retries
+    }
+  }
+
+  /** Commit whatever is pending right now, synchronously. For teardown paths
+   *  that cannot await (quit) and for a home change under a pending batch. */
+  flushCommitsSync(): void {
+    if (this.commitTimer) { clearTimeout(this.commitTimer); this.commitTimer = null; }
+    const batch = this.pendingCommit;
+    this.pendingCommit = null;
+    if (!batch || !existsSync(join(batch.root, '.git'))) return;
+    this.untrackCostLedger(batch.root);
+    this.untrackCodexHomes(batch.root);
+    const message = commitMessage(batch.messages);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      this.clearStaleLock(batch.root);
+      const add = this.git(['add', '-A'], batch.root);
+      const commit = this.git(['commit', '-q', '-m', message], batch.root);
       if (commit.ok) return;
       if (/nothing to commit/i.test(commit.out + commit.err)) return;
       if (!add.ok || /index\.lock/i.test(commit.err)) { sleepSync(50 * (attempt + 1)); continue; }
-      return; // a non-lock failure — give up quietly, the next mutation retries
+      return;
     }
+  }
+
+  /** Wait for the in-flight commit, then commit what is pending. For teardown
+   *  paths that are about to copy or wipe the hive directory. */
+  async drainCommits(): Promise<void> {
+    if (this.commitInFlight) await this.commitInFlight;
+    this.flushCommitsSync();
   }
 
   private clearStaleLock(root: string): void {
