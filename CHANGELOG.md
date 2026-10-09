@@ -14,6 +14,17 @@ All notable changes to this project are documented here. The format is based on
   prompt only when they change: for the roster, an agent joining or leaving, a role, hold,
   breaker or inbox change, or a 25-point move in context occupancy; for the goal, an edit. The
   heartbeat digest's recent log is one short line per event instead of raw JSON.
+- **The hourly ops standup skips an unchanged floor.** It used to wake the orchestrator every
+  hour, around the clock, even with nothing running. It now fires only when a worker did
+  something (coordination files or terminal output) or real worker/human mail is waiting for
+  the orchestrator since the last standup; the orchestrator's own activity does not count, so
+  a standup is never the reason for the next one. Other missions are unchanged, and the
+  standup's behaviour can be turned off with `skipWhenIdle: false`.
+- **Cheap helpers move to Haiku 5.5.** Triage, routing, lint, summarizing and classifying roles
+  and the memory condenser run on `claude-haiku-5-5` (1M context, $0.10 / $0.50 per MTok, a
+  tenth of Haiku 4.5) instead of Haiku 4.5. Haiku 5.5 joins the Claude and OpenCode pickers and
+  the Hiring Desk suggestions, its price is in the offline table, and the context gauge starts
+  it at 1M.
 - **A lighter main process.** Hive changes are committed to the hive's git history in batches
   (one commit per 2-second burst) by an asynchronous git, instead of a blocking `git add` +
   `git commit` on every routed message; quitting, resetting and moving the home folder still

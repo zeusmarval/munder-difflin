@@ -20,6 +20,8 @@ test('the Claude 5 family prices by tier, Fable included', () => {
   assert.deepEqual(inOut('claude-sonnet-5-5'), [2, 10]);
   assert.deepEqual(inOut('claude-sonnet-5'), [2, 10]);
   assert.deepEqual(inOut('claude-haiku-4-5-20251001'), [1, 5]);
+  assert.deepEqual(inOut('claude-haiku-5-5'), [0.1, 0.5]);
+  assert.deepEqual(inOut('anthropic/claude-haiku-5-5'), [0.1, 0.5]);
 });
 
 test('newer models carry their own cache-read rate', () => {

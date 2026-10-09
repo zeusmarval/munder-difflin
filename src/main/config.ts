@@ -47,6 +47,12 @@ export interface ScheduledMission {
    *  `ContextTriggerConfig` where the operator can edit them, so do not restate
    *  the numbers anywhere else — they will drift. */
   autoCompact?: boolean;
+  /** Skip a fire when nothing happened on the floor since the last one: no
+   *  worker activity and no unread worker/human mail for god. Each fire costs a
+   *  full orchestrator turn, so a review of an unchanged floor is pure spend.
+   *  Absent ⇒ on for the built-in ops standup, off for every other mission
+   *  (a user's own mission may be a deliberate reminder). See missionGate.ts. */
+  skipWhenIdle?: boolean;
   lastFiredAt?: number;
   /** Mission flavor. Absent ⇒ 'dispatch' (the classic interval-dispatch mission,
    *  e.g. the ops standup). 'heartbeat' (Lane A #1) is a context-aware beat: it
@@ -76,7 +82,8 @@ export const OPS_STANDUP_MISSION: ScheduledMission = {
     'next step, then compact and resume from the same point — so terminal ' +
     'contexts stay bounded without losing work. The compaction is queued and ' +
     'runs when an agent is idle, so it never interrupts work mid-step.)',
-  enabled: true
+  enabled: true,
+  skipWhenIdle: true
   // NO autoCompact. Compaction belongs to contextTrigger.compact and nothing else.
   // This flag used to live here as well, which meant a default install asked for
   // compaction on TWO cadences — hourly from this standup and 2-hourly from the
@@ -729,7 +736,7 @@ export function resetConfig(): HarnessConfig {
  *  src/renderer/src/store/config.ts. */
 const MODEL_GOD = 'claude-opus-5-5';                  // orchestration — highest capability (1M context by default)
 const MODEL_WORKER = 'claude-sonnet-5-5';             // general execution (1M context by default)
-const MODEL_HELPER = 'claude-haiku-4-5-20251001';     // narrow, cheap helpers (200K context)
+const MODEL_HELPER = 'claude-haiku-5-5';             // narrow, cheap helpers (1M context, a tenth of Haiku 4.5's price)
 
 /** Minimal structural shape for tiering — a subset of AgentMeta so config.ts
  *  stays free of a hive.ts import. */

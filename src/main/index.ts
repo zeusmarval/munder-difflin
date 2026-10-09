@@ -28,6 +28,7 @@ import { HiveManager, type AgentMeta, type HiveMessage, type HiveTask } from './
 import { HookServer } from './hooks';
 import { CircuitBreaker, type BreakerInput } from './breaker';
 import { formatLogEntry } from './logDigest';
+import { shouldSkipIdleMission } from './missionGate';
 import type { UsageProvider } from './usage';
 import { MemoryManager } from './memory';
 import { KnowledgeManager } from './knowledge';
@@ -684,6 +685,19 @@ function syncMissions(): void {
     if (m.kind === 'heartbeat') { armHeartbeat(m); continue; }
     const fire = (): void => {
       try {
+        // An unchanged floor does not need another orchestrator review. Read the
+        // persisted record: the closure's `m` holds the lastFiredAt from arm time.
+        if (m.kind !== 'compact') {
+          const persisted = (readConfig().missions ?? []).find((x) => x.id === m.id) ?? m;
+          if (shouldSkipIdleMission({
+            mission: persisted,
+            lastWorkerActivityAt: lastWorkerActivityAt(),
+            godActionableInbox: godActionableInboxCount()
+          })) {
+            console.log(`[scheduler] ${m.id}: floor unchanged since the last run — skipped`);
+            return;
+          }
+        }
         // A 'compact' maintenance mission (maint-1) is compaction-ONLY: it carries
         // no dispatch body/target, so skip the hive.send and just fire auto-compact.
         // Gate on `kind!=='compact'` ALONE — that already excludes the compact mission;
@@ -1032,6 +1046,22 @@ function lastCoordinationAt(agentId: string): number {
   pushMtime(join(dir, 'outbox', '.sent'));
   pushMtime(join(dir, 'memory.md'));
   return Math.max(...times);
+}
+
+/** Newest activity of any active non-god agent: its coordination files or its
+ *  terminal output. 0 when there are no workers. God is left out on purpose —
+ *  see missionGate.ts. */
+function lastWorkerActivityAt(): number {
+  const reg = hive.registry();
+  let newest = 0;
+  for (const [id, a] of Object.entries(reg.agents)) {
+    if (a.archived || id === reg.godId) continue;
+    newest = Math.max(newest, lastCoordinationAt(id));
+    const ptyId = ptyForAgent(id);
+    const idle = ptyId ? ptyManager.idleFor(ptyId) : undefined;
+    if (idle !== undefined) newest = Math.max(newest, Date.now() - idle);
+  }
+  return newest;
 }
 
 /** PTY id owning a given agent id, or undefined. */

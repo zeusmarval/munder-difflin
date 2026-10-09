@@ -3167,7 +3167,7 @@ function ctxSize(model) {
   const m = String(model || '').toLowerCase();
   if (m.indexOf('[1m]') !== -1 || m.indexOf('-1m') !== -1) return 1000000;
   if (m.indexOf('fable') !== -1 || m.indexOf('mythos') !== -1) return 1000000;
-  if (m.indexOf('claude-opus-5') !== -1 || m.indexOf('claude-sonnet-5') !== -1) return 1000000;
+  if (m.indexOf('claude-opus-5') !== -1 || m.indexOf('claude-sonnet-5') !== -1 || m.indexOf('claude-haiku-5') !== -1) return 1000000;
   if (m.indexOf('claude') !== -1) return 200000;
   if (m.indexOf('gpt-4o') !== -1 || m.indexOf('gpt-4.1') !== -1 || m.indexOf('o1') !== -1 || m.indexOf('o3') !== -1) return 128000;
   if (m.indexOf('qwen') !== -1) return 262144;

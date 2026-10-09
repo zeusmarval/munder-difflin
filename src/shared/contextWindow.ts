@@ -8,8 +8,8 @@
  *
  * Rules, in order:
  *  - Claude Code's `[1m]` alias (or a `-1m` suffix) always means 1M.
- *  - The Claude 5 family — Fable / Mythos (any version), Opus 5, Sonnet 5 — is
- *    1M by default; no alias exists or is needed.
+ *  - The Claude 5 family — Fable / Mythos (any version), Opus 5, Sonnet 5,
+ *    Haiku 5 — is 1M by default; no alias exists or is needed.
  *  - Everything else is 200K: the 4.x generation without the alias, Haiku 4.5,
  *    and non-Claude ids the harness knows nothing about.
  *
@@ -25,7 +25,7 @@ export function defaultContextWindow(model: string | null | undefined): number {
   if (m.includes('[1m]') || /-1m(?![a-z0-9])/.test(m)) return CONTEXT_1M;
   if (m.includes('fable') || m.includes('mythos')) return CONTEXT_1M;
   // A date stamp after the family (`claude-3-5-sonnet-20241022`) is not a version.
-  const gen = /(opus|sonnet)-(\d{1,2})(?![0-9])/.exec(m);
+  const gen = /(opus|sonnet|haiku)-(\d{1,2})(?![0-9])/.exec(m);
   if (gen && Number(gen[2]) >= 5) return CONTEXT_1M;
   return CONTEXT_200K;
 }

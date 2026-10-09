@@ -29,6 +29,7 @@ const SHIPPED = {
     ["claude-sonnet-5", "Sonnet 5"],
     ["claude-sonnet-4-6", "Sonnet 4.6"],
     ["claude-sonnet-4-6[1m]", "Sonnet 4.6 · 1M"],
+    ["claude-haiku-5-5", "Haiku 5.5"],
     ["claude-haiku-4-5-20251001", "Haiku 4.5"]
   ],
   antigravity: [
@@ -52,6 +53,7 @@ const SHIPPED = {
     [undefined, "CLI default"],
     ["anthropic/claude-opus-5-5", "Claude Opus 5.5 (Anthropic)"],
     ["anthropic/claude-sonnet-5-5", "Claude Sonnet 5.5 (Anthropic)"],
+    ["anthropic/claude-haiku-5-5", "Claude Haiku 5.5 (Anthropic)"],
     ["anthropic/claude-haiku-4-5", "Claude Haiku 4.5 (Anthropic)"],
     ["openai/gpt-5", "GPT-5 (OpenAI)"],
     ["openai/gpt-5-mini", "GPT-5 mini (OpenAI)"],

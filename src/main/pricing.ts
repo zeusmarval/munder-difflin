@@ -55,6 +55,9 @@ const OPUS_LEGACY: ModelPrice = listPrice(15, 75);
 const SONNET_5: ModelPrice = listPrice(2, 10);
 /** Sonnet 4.6 and older (4.5, 4, 3.7, …). */
 const SONNET: ModelPrice = listPrice(3, 15);
+/** Haiku 5.5 — prompts up to 100K tokens; longer prompts list at $0.50 / $2.50,
+ *  which this per-row table does not model (fallback-only, see above). */
+const HAIKU_5: ModelPrice = listPrice(0.1, 0.5);
 /** Haiku 4.5. */
 const HAIKU: ModelPrice = listPrice(1, 5);
 /** Haiku 3.5 and older. */
@@ -109,6 +112,7 @@ export function priceFor(model: string | undefined | null): ModelPrice {
     case 'sonnet':
       return major >= 5 ? SONNET_5 : SONNET;
     case 'haiku':
+      if (major >= 5) return HAIKU_5;
       return major >= 4 ? HAIKU : HAIKU_LEGACY;
     default:
       return DEFAULT_PRICE;
