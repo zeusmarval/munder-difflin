@@ -54,6 +54,30 @@ test('mail to an id with no inbox bounces to god and is logged as a drop', async
   assert.equal(bounced[0].body, 'go', 'the bounce carries the original body');
 });
 
+test('a worker\'s mail to an unknown id bounces to the AUTHOR, not to god', async (t) => {
+  const { hive } = await floor(t);
+
+  hive.send({ to: 'phyllis', act: 'inform', subject: 'cero', body: 'the finding' }, 'jim-1');
+
+  const back = hive.inbox('jim-1');
+  assert.equal(back.length, 1, 'the author must learn its mail never arrived');
+  assert.match(back[0].subject, /^\[undeliverable — no agent "phyllis"/);
+  assert.equal(back[0].body, 'the finding', 'the bounce carries the original body to resend');
+  assert.equal(hive.inbox('god-1').length, 0, 'god no longer swallows the author\'s bounce');
+  const [b] = entries(hive, 'bounce');
+  assert.equal(b.bouncedTo, 'jim-1');
+  assert.equal(entries(hive, 'drop').filter((e) => e.reason === 'no-inbox').length, 1, 'the drop is still logged');
+});
+
+test('a system sender with no inbox still bounces to god', async (t) => {
+  const { hive } = await floor(t);
+
+  hive.send({ to: 'nobody', act: 'inform', subject: 'tick' }, 'scheduler');
+
+  assert.equal(hive.inbox('god-1').length, 1, 'no author inbox -> god is the fallback');
+  assert.equal(entries(hive, 'bounce')[0].bouncedTo, 'god-1');
+});
+
 test('the message log records delivered targets, not intent', async (t) => {
   const { hive } = await floor(t);
 

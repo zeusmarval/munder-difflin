@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **A message to an unknown agent id bounces back to its author.** The `[undeliverable]`
+  bounce used to land in the orchestrator's inbox, so the agent that mistyped the id never
+  learned its message was lost. It now goes to the sender's own inbox with the original body,
+  ready to resend. System senders without an inbox, and the orchestrator itself, still bounce
+  to the orchestrator. The `drop` log line is unchanged, and a new `bounce` line records who
+  received the bounce.
 - **Fewer repeated tokens per turn.** The orchestrator's live roster and each agent's standing
   goal were re-injected on every prompt, so every turn appended another identical copy to the
   transcript. Both now go in at session start (including after a resume or compaction) and on a

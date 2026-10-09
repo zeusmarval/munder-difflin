@@ -1615,15 +1615,24 @@ export class HiveManager {
       // No agents/<t>/inbox — an id that isn't on the floor. This was the one
       // delivery failure with neither bounce nor log, so the sender saw a routed
       // message and the mail simply ceased to exist. Record the drop beside the
-      // hop-cap one and bounce to god, mirroring the undeliverable bounces above.
+      // hop-cap one and bounce it.
+      //
+      // The bounce goes back to the AUTHOR, not to god: a mistyped id is the
+      // sender's to fix, and only the sender knows whether the content still
+      // matters. Bouncing to god left authors unaware — on one floor 18 messages
+      // from 8 authors never arrived and none of the authors knew. God is the
+      // fallback when the sender has no inbox of its own (system senders such as
+      // 'scheduler' or 'breaker') or IS god. The drop log above keeps god's view.
       this.appendLog({ kind: 'drop', reason: 'no-inbox', from: msg.from, to: t, id: msg.id });
-      if (t !== godId) {
-        this.deliver({
-          ...msg,
-          to: godId,
-          subject: `[undeliverable — no agent "${t}" on this floor; check the id against the roster] ${msg.subject}`
-        }, godId);
+      const bounce = {
+        ...msg,
+        subject: `[undeliverable — no agent "${t}" on this floor; check the id against the roster and resend] ${msg.subject}`
+      };
+      const authorTookIt = msg.from !== godId && this.deliver({ ...bounce, to: msg.from }, msg.from);
+      if (!authorTookIt && t !== godId) {
+        this.deliver({ ...bounce, to: godId }, godId);
       }
+      this.appendLog({ kind: 'bounce', reason: 'no-inbox', from: msg.from, to: t, id: msg.id, bouncedTo: authorTookIt ? msg.from : godId });
     }
     this.appendLog({ kind: 'message', from: msg.from, to: msg.to, act: msg.act, subject: msg.subject, id: msg.id, delivered });
     this.emitMessage(msg, targets);
