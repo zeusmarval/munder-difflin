@@ -15,6 +15,7 @@
  */
 import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { freemem } from 'node:os';
 import { spawn, spawnSync } from 'node:child_process';
 import { ensureKilled } from './procKill';
 import { quarantineDirsToReap, quarantineStampMs, nextMineDelayMs } from './palaceReap';
@@ -110,6 +111,30 @@ export function mempalaceDevice(
 }
 const MEMPALACE_DEVICE = mempalaceDevice(process.platform, process.env.MEMPALACE_EMBEDDING_DEVICE);
 
+/** A `mempalace mine` holds ~1 GB while it runs (983 and 998 MB measured
+ *  2026-10-10 on a 472 KB memory.md), and the host's memory-pressure killer
+ *  took a long QA run down after a mine dropped free RAM to 2339 MB. A mine
+ *  only starts with at least this much free, so ~2 GB stay free while it runs. */
+const MINE_MIN_FREE_MB = 3000;
+/** An agent running a long, memory-hungry job creates `hive/RUNNING.lock` and
+ *  deletes it after; while it exists no mine starts. */
+const RUN_LOCK_NAME = 'RUNNING.lock';
+/** A lock older than this is a leftover from a run that died without cleaning
+ *  up; ignoring it keeps one crashed agent from stopping recall for good. */
+const RUN_LOCK_MAX_AGE_MS = 6 * 60 * 60_000;
+
+export type MineGate =
+  | { ok: true; staleLock: boolean }
+  | { ok: false; reason: 'run-lock' | 'low-memory' };
+
+/** Whether a mine may start now. `lockAgeMs` is null when there is no lock. */
+export function mineGate(freeMb: number, lockAgeMs: number | null, minFreeMb = MINE_MIN_FREE_MB): MineGate {
+  const staleLock = lockAgeMs !== null && lockAgeMs > RUN_LOCK_MAX_AGE_MS;
+  if (lockAgeMs !== null && !staleLock) return { ok: false, reason: 'run-lock' };
+  if (freeMb < minFreeMb) return { ok: false, reason: 'low-memory' };
+  return { ok: true, staleLock };
+}
+
 export class MemoryManager {
   private binCache: string | null | undefined;
   private mineTimer: NodeJS.Timeout | null = null;
@@ -125,10 +150,39 @@ export class MemoryManager {
   /** agentId → memory.md mtimeMs at last successful mine (skip unchanged). */
   private lastMined = new Map<string, number>();
 
+  /** Lock mtime already reported as stale, so a stale lock logs once, not every pass. */
+  private staleLockLogged = 0;
+
+  /**
+   * @param appendLog    Sink for `mine-deferred` / `mine-lock-stale` (hive log.jsonl).
+   * @param freeMemBytes Host free memory; injectable for tests.
+   */
   constructor(
     private getHome: () => string | null,
-    private getSettings: () => MemorySettings
+    private getSettings: () => MemorySettings,
+    private appendLog: (event: Record<string, unknown>) => void = () => {},
+    private freeMemBytes: () => number = freemem
   ) {}
+
+  /** The gate for the next mine. Reads the host and the hive lock each time:
+   *  free memory moves during a pass, and a lock can appear mid-pass. */
+  private checkMineGate(home: string): MineGate & { freeMb: number } {
+    const freeMb = Math.round(this.freeMemBytes() / 1024 / 1024);
+    let lockAgeMs: number | null = null;
+    let lockMtime = 0;
+    try {
+      lockMtime = statSync(join(home, 'hive', RUN_LOCK_NAME)).mtimeMs;
+      lockAgeMs = Date.now() - lockMtime;
+    } catch { /* no lock */ }
+    const gate = mineGate(freeMb, lockAgeMs);
+    if (gate.ok && gate.staleLock && this.staleLockLogged !== lockMtime) {
+      this.staleLockLogged = lockMtime;
+      try {
+        this.appendLog({ kind: 'mine-lock-stale', lock: RUN_LOCK_NAME, ageMin: Math.round((lockAgeMs ?? 0) / 60_000) });
+      } catch { /* best-effort */ }
+    }
+    return { ...gate, freeMb };
+  }
 
   palacePath(): string | null {
     const h = this.getHome();
@@ -304,6 +358,15 @@ export class MemoryManager {
         let mtime = 0;
         try { mtime = statSync(mem).mtimeMs; } catch { continue; }
         if (this.lastMined.get(id) === mtime) continue; // unchanged — skip the model load
+        // Checked before EVERY mine, not once per pass: each mine moves free memory.
+        // A deferred agent keeps its old lastMined, so the next pass retries it.
+        const gate = this.checkMineGate(home);
+        if (!gate.ok) {
+          try {
+            this.appendLog({ kind: 'mine-deferred', reason: gate.reason, freeMb: gate.freeMb, minFreeMb: MINE_MIN_FREE_MB, agentId: id });
+          } catch { /* best-effort */ }
+          break;
+        }
         this.lastMined.set(id, mtime);
         await this.mineAgent(agentDir, id); // one writer at a time
       }

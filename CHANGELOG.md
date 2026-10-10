@@ -18,6 +18,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **Memory indexing waits when your computer is short on memory.** Each run of
+  `mempalace mine` uses about 1 GB, and one started during a long agent run pushed free
+  memory low enough that the system closed that run. Indexing now starts only with at least
+  3000 MB free, and not while `hive/RUNNING.lock` exists, which an agent creates for the
+  length of a long run. Otherwise it is postponed to the next pass (`mine-deferred` in the
+  log). A lock left behind for more than 6 hours is ignored.
 - **Messages are no longer lost to `bad-` by a passing hiccup.** Any problem with an outbox
   file used to set it aside as `bad-` for good: an actual JSON error, but also a file read
   while its agent was still writing it, or a write the system refused for a moment. These

@@ -3076,6 +3076,10 @@ Evidence, measurements and credits: [\`DELIVERY-EVIDENCE.md\`](DELIVERY-EVIDENCE
 - \`board.md\` is the shared plan. Don't edit it directly — \`propose\` changes to \`god\`,
   who is its sole scribe.
 - Re-reading a message you already moved to \`.done/\` is a no-op. Don't reprocess.
+- Before a long, memory-hungry run (a full QA suite, a big build), create \`hive/RUNNING.lock\`
+  (one line: who and what) and delete it when the run ends, even if it failed. While it
+  exists the harness starts no \`mempalace mine\` (each one holds ~1 GB). A lock older than
+  6 h is treated as left behind and ignored.
 - Your shell does NOT inherit the app's dev-launcher variables (\`NODE_ENV\`,
   \`ELECTRON_*\`, \`VITE_USER_NODE_ENV\`…). If a build needs a mode, set it explicitly
   (\`NODE_ENV=production vite build\`, \`vite build --mode production\`).
