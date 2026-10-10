@@ -228,7 +228,8 @@ export class MemoryReflector {
     try {
       summary = await this.summarize(home, parsed.condensed, evict, parsed.pinned);
     } catch (e) {
-      this.logAbort(id, 'summarize-failed', String(e));
+      this.logAbort(id, 'summarize-failed', String(e),
+        e instanceof SummaryParseError ? { responsePrefix: e.responsePrefix } : undefined);
       return { id, condensed: false, reason: 'summarize-failed', oldBytes };
     }
 
@@ -307,7 +308,7 @@ export class MemoryReflector {
       throw new Error(result.error ?? 'condense: hidden session returned no text');
     }
     const parsed = parseSummary(result.text);
-    if (!parsed) throw new Error('condense: response contained no parseable JSON');
+    if (!parsed) throw new SummaryParseError(result.text);
     return parsed;
   }
 }
@@ -449,8 +450,17 @@ export function verify(args: {
 }
 
 /** Pull `{condensed, hoist}` out of `claude -p --output-format json` output.
- *  Two layers: the CLI envelope `{result: "<text>"}`, then the model's strict
- *  JSON (tolerating an accidental ```json fence). Returns null on any failure. */
+ *  Two layers: the CLI envelope `{result: "<text>"}`, then the model's JSON.
+ *  Returns null on any failure.
+ *
+ *  The model's JSON is parsed leniently, because a strict parse lost real
+ *  summaries (census of 1419 hidden condense sessions, 2026-10-10): raw
+ *  newlines inside the "condensed" string (the dominant shape since 10-09),
+ *  junk after the object (`</code>`, a stray `}`), a fence or prose around it.
+ *  The order is strict parse first, then each `{` in turn: the balanced object
+ *  that starts there, with raw control characters inside strings escaped. What
+ *  is still unrecoverable (mis-escaped quotes, a quota notice instead of JSON)
+ *  stays null; the caller logs a prefix of the raw text. */
 export function parseSummary(stdout: string): { condensed: string; hoist: string[] } | null {
   const raw = stdout.trim();
   if (!raw) return null;
@@ -461,12 +471,66 @@ export function parseSummary(stdout: string): { condensed: string; hoist: string
     else if (typeof env.text === 'string') inner = env.text;
   } catch { /* not the CLI envelope — treat stdout itself as the model output */ }
   inner = inner.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-  try {
-    const obj = JSON.parse(inner) as { condensed?: unknown; hoist?: unknown };
-    if (typeof obj.condensed !== 'string' || !obj.condensed.trim()) return null;
-    const hoist = Array.isArray(obj.hoist) ? obj.hoist.filter((x): x is string => typeof x === 'string') : [];
-    return { condensed: obj.condensed, hoist };
-  } catch { return null; }
+  const strict = summaryShape(tryJson(inner));
+  if (strict) return strict;
+  for (let at = inner.indexOf('{'); at !== -1; at = inner.indexOf('{', at + 1)) {
+    const candidate = balancedObject(inner, at);
+    if (candidate === null) continue;
+    const found = summaryShape(tryJson(candidate));
+    if (found) return found;
+  }
+  return null;
+}
+
+function tryJson(text: string): unknown {
+  try { return JSON.parse(text); } catch { return undefined; }
+}
+
+function summaryShape(v: unknown): { condensed: string; hoist: string[] } | null {
+  if (!v || typeof v !== 'object') return null;
+  const obj = v as { condensed?: unknown; hoist?: unknown };
+  if (typeof obj.condensed !== 'string' || !obj.condensed.trim()) return null;
+  const hoist = Array.isArray(obj.hoist) ? obj.hoist.filter((x): x is string => typeof x === 'string') : [];
+  return { condensed: obj.condensed, hoist };
+}
+
+const CONTROL_ESCAPES: Record<string, string> = { '\n': '\\n', '\r': '\\r', '\t': '\\t' };
+
+/** The `{…}` starting at `start`, balanced outside strings, with raw control
+ *  characters inside strings escaped so JSON.parse accepts them. Null when the
+ *  object never closes (a truncated response). */
+function balancedObject(text: string, start: number): string | null {
+  let out = '';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (ch === '\\') escaped = true;
+      else if (ch === '"') inString = false;
+      else if (ch < ' ') { out += CONTROL_ESCAPES[ch] ?? `\\u${ch.charCodeAt(0).toString(16).padStart(4, '0')}`; continue; }
+    } else if (ch === '"') inString = true;
+    else if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return out + ch;
+    out += ch;
+  }
+  return null;
+}
+
+/** How much of an unparseable condense response the abort event keeps. */
+const RESPONSE_PREFIX_CHARS = 300;
+
+/** A summarize response that held no usable JSON. Carries the head of the raw
+ *  text so the log says what came back (a quota notice, an API error, a
+ *  refusal) instead of only that parsing failed. */
+export class SummaryParseError extends Error {
+  readonly responsePrefix: string;
+  constructor(text: string) {
+    super('condense: response contained no parseable JSON');
+    this.responsePrefix = text.slice(0, RESPONSE_PREFIX_CHARS);
+  }
 }
 
 /** `20260606T110912Z` — matches the janitor's backup-dir stamp format. */

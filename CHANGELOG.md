@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Memory condensing accepts the summaries the model actually returns.** A summary with
+  raw line breaks inside its text, or with stray characters after it, was thrown away as
+  "no parseable JSON" and the memory file was left uncondensed. Those summaries are now
+  read. When a reply still can't be used, the `condense-abort` log entry includes the first
+  300 characters of it (`responsePrefix`), so a quota notice or an API error shows up as
+  what it is.
 - **Agent terminals no longer inherit the dev launcher's environment.** A development build
   (`npm run dev`) handed every agent `NODE_ENV=development` and electron-vite's own
   `ELECTRON_*`/`VITE_USER_NODE_ENV` variables, so an agent running `vite build` produced
