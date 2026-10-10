@@ -2883,6 +2883,9 @@ The harness fills in \`id\`, \`from\`, \`hops\`, and timestamps.
 - \`board.md\` is the shared plan. Don't edit it directly — \`propose\` changes to \`god\`,
   who is its sole scribe.
 - Re-reading a message you already moved to \`.done/\` is a no-op. Don't reprocess.
+- Your shell does NOT inherit the app's dev-launcher variables (\`NODE_ENV\`,
+  \`ELECTRON_*\`, \`VITE_USER_NODE_ENV\`…). If a build needs a mode, set it explicitly
+  (\`NODE_ENV=production vite build\`, \`vite build --mode production\`).
 
 ## The work: board.md vs tasks.json
 There are two shared surfaces, both in the hive root:

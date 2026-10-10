@@ -8,6 +8,12 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Agent terminals no longer inherit the dev launcher's environment.** A development build
+  (`npm run dev`) handed every agent `NODE_ENV=development` and electron-vite's own
+  `ELECTRON_*`/`VITE_USER_NODE_ENV` variables, so an agent running `vite build` produced
+  development bundles without knowing. Those variables are now dropped from agent shells.
+  `NODE_ENV` is dropped only when electron-vite itself set it, so a value you export yourself
+  still reaches agents.
 - **A message to an unknown agent id bounces back to its author.** The `[undeliverable]`
   bounce used to land in the orchestrator's inbox, so the agent that mistyped the id never
   learned its message was lost. It now goes to the sender's own inbox with the original body,
