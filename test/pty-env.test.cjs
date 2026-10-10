@@ -88,6 +88,41 @@ test('per-agent env wins over the strip AND over the defaults', () => {
   assert.equal(env.AGENT_ID, 'a1');
 });
 
+/** What `npm run dev` (electron-vite) puts on process.env before Electron
+ *  starts — read from node_modules/electron-vite/dist. A dev build used to hand
+ *  all of it to every agent; NODE_ENV=development made agents build dev bundles. */
+const DEV_LAUNCHER_ENV = {
+  NODE_ENV: 'development',
+  NODE_ENV_ELECTRON_VITE: 'development',
+  ELECTRON_RENDERER_URL: 'http://localhost:5173',
+  ELECTRON_CLI_ARGS: '[]',
+  ELECTRON_ENTRY: './out/main/index.js',
+  ELECTRON_EXEC_PATH: 'C:\\electron.exe',
+  ELECTRON_MAJOR_VER: '32',
+  REMOTE_DEBUGGING_PORT: '9222',
+  VITE_USER_NODE_ENV: 'development',
+  NO_SANDBOX: '1'
+};
+
+test('a dev-launched app passes none of the launcher\'s variables to agents', () => {
+  const env = buildPtyEnv({ ...DEV_LAUNCHER_ENV, HOME: '/h', DEBUG: 'app:*', BROWSER: 'none' }, '/bin', undefined, 'linux');
+  for (const k of Object.keys(DEV_LAUNCHER_ENV)) assert.ok(!(k in env), `${k} leaked into the agent env`);
+  assert.equal(env.HOME, '/h', 'ordinary env still flows through');
+  assert.equal(env.DEBUG, 'app:*', 'DEBUG is an operator choice, kept');
+  assert.equal(env.BROWSER, 'none', 'BROWSER is an operator choice, kept');
+});
+
+test('without the electron-vite marker, an operator\'s own NODE_ENV and NO_SANDBOX survive', () => {
+  const env = buildPtyEnv({ NODE_ENV: 'production', NO_SANDBOX: '1' }, '/bin', undefined, 'linux');
+  assert.equal(env.NODE_ENV, 'production');
+  assert.equal(env.NO_SANDBOX, '1');
+});
+
+test('a per-agent NODE_ENV still wins over the dev strip', () => {
+  const env = buildPtyEnv(DEV_LAUNCHER_ENV, '/bin', { NODE_ENV: 'test' }, 'linux');
+  assert.equal(env.NODE_ENV, 'test');
+});
+
 test('app defaults land: PATH, terminal identity, color', () => {
   const env = buildPtyEnv({ PATH: '/stale' }, '/resolved/bin', undefined, 'darwin');
   assert.equal(env.PATH, '/resolved/bin');

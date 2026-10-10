@@ -43,6 +43,38 @@ const CLAUDE_CONFIG_KEEP = new Set([
   'CLAUDE_CODE_USE_VERTEX'
 ]);
 
+/**
+ * The DEV launcher's own variables. `npm run dev` runs electron-vite, which sets
+ * these on its process.env before starting Electron, so a dev build handed them
+ * to every agent — NODE_ENV=development above all: an agent that ran `vite build`
+ * shipped development bundles (bigger, React StrictMode double-render) without
+ * knowing (seen live 2026-10, three deploys). A packaged app never sets them.
+ *
+ * An explicit list, read from electron-vite's source, not a prefix: these names
+ * describe the launcher and nothing else, so dropping them can't take an
+ * operator's choice with it.
+ */
+const DEV_LAUNCHER_KEYS = new Set([
+  'ELECTRON_CLI_ARGS',
+  'ELECTRON_ENTRY',
+  'ELECTRON_EXEC_PATH',
+  'ELECTRON_MAJOR_VER',
+  'ELECTRON_RENDERER_URL',
+  'NODE_ENV_ELECTRON_VITE',
+  'REMOTE_DEBUGGING_PORT',
+  'VITE_USER_NODE_ENV'
+]);
+
+/**
+ * Generic names electron-vite ALSO sets, but that an operator may export on
+ * purpose. Stripped only when the launcher's marker NODE_ENV_ELECTRON_VITE is
+ * present — then the value is the launcher's, not the operator's. Without the
+ * marker (packaged app, or a shell that exported them) they pass through.
+ * Left alone on purpose: DEBUG and BROWSER (vite sets them only when asked to,
+ * and both are legitimate operator settings).
+ */
+const DEV_LAUNCHER_GENERIC_KEYS = new Set(['NODE_ENV', 'NO_SANDBOX']);
+
 export function buildPtyEnv(
   parentEnv: NodeJS.ProcessEnv,
   userPath: string,
@@ -54,9 +86,12 @@ export function buildPtyEnv(
   // so per-agent environment overrides (and future per-agent env features)
   // cannot be silently wiped by the strip.
   const inherited: Record<string, string> = {};
+  const devLaunched = parentEnv.NODE_ENV_ELECTRON_VITE !== undefined;
   for (const [k, v] of Object.entries(parentEnv)) {
     if (v === undefined) continue;
     if (CLAUDE_MARKER_RE.test(k) && !CLAUDE_CONFIG_KEEP.has(k)) continue;
+    if (DEV_LAUNCHER_KEYS.has(k)) continue;
+    if (devLaunched && DEV_LAUNCHER_GENERIC_KEYS.has(k)) continue;
     inherited[k] = v;
   }
   return {
