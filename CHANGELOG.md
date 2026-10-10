@@ -16,6 +16,18 @@ All notable changes to this project are documented here. The format is based on
   sender's `outbox/.sent`, logged as a `drop` with the rejected value, and returned to the
   sender with the reason.
 
+### Fixed
+
+- **Messages are no longer lost to `bad-` by a passing hiccup.** Any problem with an outbox
+  file used to set it aside as `bad-` for good: an actual JSON error, but also a file read
+  while its agent was still writing it, or a write the system refused for a moment. These
+  are now handled separately. A file that is still changing is left alone until it is
+  complete. A failed delivery is retried with growing waits and set aside as `bad-` only
+  after 5 tries. A message that was delivered but could not be moved to `.sent` is not
+  delivered again. A file that really isn't valid JSON is still set aside as `bad-`, and its
+  author now gets a message with the error and the original text. Each case is logged
+  (`route-retry`, or `drop` with reason `malformed` or `delivery-failed`).
+
 ### Changed
 
 - **Memory condensing pauses while your usage limit is reached.** When the summarizer

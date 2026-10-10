@@ -260,6 +260,20 @@ function shortRand(): string {
 const PATH_SEGMENT_RE = /^[\p{L}\p{N}._-]{1,200}$/u;
 const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
 
+/** An unparseable outbox file younger than this may still be being written. */
+const MALFORMED_SETTLE_MS = 5_000;
+/** Delivery attempts before an outbox file is given up as `bad-`. */
+const ROUTE_MAX_ATTEMPTS = 5;
+
+/** Backoff before routing attempt n+1: 2 s, 4 s, 8 s, 16 s (capped at 60 s). */
+export function retryDelay(attempts: number): number {
+  return Math.min(60_000, 2_000 * 2 ** Math.max(0, attempts - 1));
+}
+
+function errText(e: unknown): string {
+  return (e instanceof Error ? `${(e as NodeJS.ErrnoException).code ?? e.name}: ${e.message}` : String(e)).slice(0, 300);
+}
+
 export function isSafePathSegment(s: unknown): s is string {
   return typeof s === 'string' && PATH_SEGMENT_RE.test(s) && !s.includes('..') &&
     !s.startsWith('.') && !WINDOWS_DEVICE_RE.test(s);
@@ -1776,32 +1790,124 @@ export class HiveManager {
     const agentsDir = join(root, 'agents');
     if (!existsSync(agentsDir)) return 0;
     let routed = 0;
+    const seen = new Set<string>();
     for (const id of readdirSync(agentsDir)) {
       const outbox = join(agentsDir, id, 'outbox');
       if (!existsSync(outbox)) continue;
       for (const f of readdirSync(outbox)) {
         if (!f.endsWith('.json')) continue;
         const full = join(outbox, f);
-        try {
-          const partial = JSON.parse(readFileSync(full, 'utf8')) as Partial<HiveMessage>;
-          const msg = this.normalize(partial, id);
-          msg.from = id; // sender is authoritative — the owning directory
-          const unsafe = unsafeMessageField(msg);
-          if (unsafe) {
-            this.rejectUnsafe(msg, unsafe, outbox, f);
-            continue;
-          }
-          this.routeMessage(msg);
-          renameSync(full, join(outbox, '.sent', f)); // archive, don't reprocess
-          routed++;
-        } catch {
-          // malformed file — quarantine so we don't spin on it
-          try { renameSync(full, join(outbox, '.sent', `bad-${f}`)); } catch { /* noop */ }
-        }
+        seen.add(full);
+        if (this.routeOnceFile(id, outbox, f, full)) routed++;
       }
     }
+    // Forget retry state for files that are gone (archived, or removed by hand).
+    for (const k of this.routeRetry.keys()) if (!seen.has(k)) this.routeRetry.delete(k);
     if (routed > 0) this.commit(`hive: routed ${routed} message(s)`);
     return routed;
+  }
+
+  /**
+   * Per-outbox-file retry state. One catch used to quarantine EVERY failure as
+   * `bad-` and never look again — a parse error, but also a file read while its
+   * author was still writing it, and a delivery write that hit a transient
+   * EPERM/EBUSY on Windows. That is how `bad-` files that parse perfectly came
+   * to exist (5 of 18 on the live floor, none ever delivered). The three cases
+   * are now told apart:
+   *   - unreadable / unparseable but still changing → wait, it's mid-write;
+   *   - unparseable and settled → `bad-` (reason `malformed`), bounced to the author;
+   *   - delivery threw → retried with backoff, under the SAME id; `bad-` (reason
+   *     `delivery-failed`) only after ROUTE_MAX_ATTEMPTS;
+   *   - delivered but the archive rename failed → only the rename is retried, so
+   *     the message is neither marked bad nor delivered twice.
+   */
+  private routeRetry = new Map<string, { attempts: number; nextAt: number; id: string; delivered: boolean }>();
+
+  /** Route one outbox file. True when it was routed and archived this tick. */
+  private routeOnceFile(id: string, outbox: string, f: string, full: string): boolean {
+    const now = Date.now();
+    const state = this.routeRetry.get(full);
+    if (state && now < state.nextAt) return false;
+    const archive = (): boolean => {
+      try {
+        renameSync(full, join(outbox, '.sent', f)); // archive, don't reprocess
+      } catch (e) {
+        // A missing .sent/ is the one archive failure we can fix ourselves.
+        try { mkdirSync(join(outbox, '.sent'), { recursive: true }); } catch { /* noop */ }
+        const prev = this.routeRetry.get(full);
+        const attempts = (prev?.attempts ?? 0) + 1;
+        this.routeRetry.set(full, { attempts, nextAt: now + retryDelay(attempts), id: prev?.id ?? '', delivered: true });
+        this.appendLog({ kind: 'route-retry', stage: 'archive', from: id, file: f, attempt: attempts, detail: errText(e) });
+        return false;
+      }
+      this.routeRetry.delete(full);
+      return true;
+    };
+    // Already delivered on an earlier tick: only the archive is left to do.
+    if (state?.delivered) return archive();
+
+    let raw: string;
+    try { raw = readFileSync(full, 'utf8'); } catch { return false; } // locked mid-write: next tick
+    let partial: Partial<HiveMessage>;
+    try {
+      partial = JSON.parse(raw) as Partial<HiveMessage>;
+    } catch (e) {
+      // Truncated JSON is what a file looks like while its author is still
+      // writing it. Only a file that has stopped changing is really malformed.
+      let age = 0;
+      try { age = now - statSync(full).mtimeMs; } catch { return false; }
+      if (age < MALFORMED_SETTLE_MS) return false;
+      this.rejectMalformed(id, outbox, f, raw, errText(e));
+      return false;
+    }
+    if (!partial || typeof partial !== 'object' || Array.isArray(partial)) {
+      this.rejectMalformed(id, outbox, f, raw, 'not a JSON object');
+      return false;
+    }
+    // A retry must keep the id the first attempt routed under, or a partially
+    // delivered broadcast would arrive twice under two names.
+    if (partial.id === undefined && state?.id) partial.id = state.id;
+    const msg = this.normalize(partial, id);
+    msg.from = id; // sender is authoritative — the owning directory
+    const unsafe = unsafeMessageField(msg);
+    if (unsafe) {
+      this.rejectUnsafe(msg, unsafe, outbox, f);
+      return false;
+    }
+    try {
+      this.routeMessage(msg);
+    } catch (e) {
+      const attempts = (state?.attempts ?? 0) + 1;
+      if (attempts >= ROUTE_MAX_ATTEMPTS) {
+        this.routeRetry.delete(full);
+        try { renameSync(full, join(outbox, '.sent', `bad-${f}`)); } catch { /* noop */ }
+        this.appendLog({ kind: 'drop', reason: 'delivery-failed', from: id, to: msg.to, id: msg.id, file: f, attempts, detail: errText(e) });
+        return false;
+      }
+      this.routeRetry.set(full, { attempts, nextAt: now + retryDelay(attempts), id: msg.id, delivered: false });
+      this.appendLog({ kind: 'route-retry', stage: 'deliver', from: id, to: msg.to, id: msg.id, file: f, attempt: attempts, detail: errText(e) });
+      return false;
+    }
+    this.routeRetry.set(full, { attempts: 0, nextAt: 0, id: msg.id, delivered: true });
+    return archive();
+  }
+
+  /** A settled outbox file that isn't a JSON message object: quarantined as
+   *  `bad-`, logged with the parse error, and bounced to its author with the raw
+   *  text — 13 of the 18 `bad-` files on the live floor were real messages
+   *  (mostly an invalid `\` escape) whose authors were never told. */
+  private rejectMalformed(id: string, outbox: string, f: string, raw: string, detail: string): void {
+    this.routeRetry.delete(join(outbox, f));
+    try { renameSync(join(outbox, f), join(outbox, '.sent', `bad-${f}`)); } catch { /* noop */ }
+    this.appendLog({ kind: 'drop', reason: 'malformed', from: id, file: f, detail });
+    try {
+      this.deliver(this.normalize({
+        to: id,
+        act: 'inform',
+        subject: `[undeliverable — your outbox file "${f}" is not valid JSON (${detail}); it is kept as bad-${f} in outbox/.sent. Fix it and resend — a backslash must be written as \\\\]`,
+        body: raw.slice(0, 4000)
+      }, 'system'), id);
+    } catch { /* the author has no usable inbox — the drop log is the record */ }
   }
 
   /** An outbox message whose `id` or `to` can't be a path segment: quarantined
