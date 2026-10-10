@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Security
+
+- **A message can no longer write outside its recipient's inbox.** The message `id` became
+  the inbox file name as given, so an id such as `../../other-agent/inbox/x` placed a forged
+  message in another agent's inbox, and the `to` field could point delivery at any folder.
+  Both fields must now be letters, digits, `.`, `_` and `-` only (at most 200 characters, no
+  `..`). A message that breaks the rule is not delivered: it is kept as `bad-` in the
+  sender's `outbox/.sent`, logged as a `drop` with the rejected value, and returned to the
+  sender with the reason.
+
 ### Changed
 
 - **Memory condensing pauses while your usage limit is reached.** When the summarizer

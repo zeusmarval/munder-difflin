@@ -24,7 +24,7 @@ import {
   symlinkSync, unlinkSync, copyFileSync, cpSync, chmodSync,
   openSync, readSync, closeSync, fstatSync
 } from 'node:fs';
-import { join, dirname, basename, isAbsolute, relative } from 'node:path';
+import { join, dirname, basename, isAbsolute, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { spawnSync, spawn, execFile, type ChildProcess } from 'node:child_process';
 import { randomBytes, createHash } from 'node:crypto';
@@ -249,6 +249,27 @@ function stamp(): string {
 
 function shortRand(): string {
   return randomBytes(3).toString('hex');
+}
+
+/** A message's `id` names its inbox file and its `to` names the agent folder,
+ *  and both are chosen by the SENDER: `join(inbox, id + '.json')` with an id of
+ *  `../x` wrote outside the recipient's inbox. Letters (any script — real ids
+ *  carry Spanish words like `señal`), digits, `.`, `_`, `-`; no separator, no
+ *  `..`, no leading dot (`.done` lives beside the inbox files), no Windows
+ *  device name (`CON.json` is the console, not a file). */
+const PATH_SEGMENT_RE = /^[\p{L}\p{N}._-]{1,200}$/u;
+const WINDOWS_DEVICE_RE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$/i;
+
+export function isSafePathSegment(s: unknown): s is string {
+  return typeof s === 'string' && PATH_SEGMENT_RE.test(s) && !s.includes('..') &&
+    !s.startsWith('.') && !WINDOWS_DEVICE_RE.test(s);
+}
+
+/** The first message field that would end up in a path and is unsafe, if any. */
+export function unsafeMessageField(msg: { id?: unknown; to?: unknown }): 'id' | 'to' | null {
+  if (!isSafePathSegment(msg.id)) return 'id';
+  if (!isSafePathSegment(msg.to)) return 'to';
+  return null;
 }
 
 /** Non-memory files `mempalace mine` must not ingest (Claude Code hooks config,
@@ -1526,9 +1547,18 @@ export class HiveManager {
    *  Returns false when the recipient has no inbox, so the caller can bounce and
    *  log the drop rather than let the message vanish. */
   private deliver(msg: HiveMessage, toId: string): boolean {
+    // Backstop behind the routers' validation: never compose a path from an
+    // unsafe segment, and never write anywhere but directly inside the inbox.
+    if (!isSafePathSegment(toId) || !isSafePathSegment(msg.id)) {
+      throw new Error(`hive: unsafe path segment in delivery (to=${JSON.stringify(toId)})`);
+    }
     const inbox = join(this.agentDir(toId), 'inbox');
     if (!existsSync(inbox)) return false; // unknown recipient — the caller reports it
-    this.atomicWriteJson(join(inbox, `${this.inboxFileName(inbox, msg, toId)}.json`), msg);
+    const file = join(inbox, `${this.inboxFileName(inbox, msg, toId)}.json`);
+    if (dirname(resolve(file)) !== resolve(inbox)) {
+      throw new Error(`hive: delivery path escapes the inbox: ${file}`);
+    }
+    this.atomicWriteJson(file, msg);
     return true;
   }
 
@@ -1576,6 +1606,13 @@ export class HiveManager {
       // loop guard — drop a runaway message rather than let agents ping-pong.
       // There's no human queue to fall back on; the god agent owns conflicts.
       this.appendLog({ kind: 'drop', reason: 'hop-cap', from: msg.from, to: msg.to, id: msg.id });
+      return;
+    }
+    // send() callers (IPC, UI, system) skip routeOnce's check — never let them
+    // compose a path either. Dropped and logged; there's no outbox file to quarantine.
+    const unsafe = unsafeMessageField(msg);
+    if (unsafe) {
+      this.appendLog({ kind: 'drop', reason: `invalid-${unsafe}`, from: msg.from, value: String(msg[unsafe]).slice(0, 200) });
       return;
     }
     const reg = this.registry();
@@ -1749,6 +1786,11 @@ export class HiveManager {
           const partial = JSON.parse(readFileSync(full, 'utf8')) as Partial<HiveMessage>;
           const msg = this.normalize(partial, id);
           msg.from = id; // sender is authoritative — the owning directory
+          const unsafe = unsafeMessageField(msg);
+          if (unsafe) {
+            this.rejectUnsafe(msg, unsafe, outbox, f);
+            continue;
+          }
           this.routeMessage(msg);
           renameSync(full, join(outbox, '.sent', f)); // archive, don't reprocess
           routed++;
@@ -1760,6 +1802,24 @@ export class HiveManager {
     }
     if (routed > 0) this.commit(`hive: routed ${routed} message(s)`);
     return routed;
+  }
+
+  /** An outbox message whose `id` or `to` can't be a path segment: quarantined
+   *  as `bad-` like a malformed file (never written anywhere), logged with the
+   *  field and value, and bounced to its author under a fresh id so the author
+   *  learns why it never arrived. */
+  private rejectUnsafe(msg: HiveMessage, field: 'id' | 'to', outbox: string, f: string): void {
+    try { renameSync(join(outbox, f), join(outbox, '.sent', `bad-${f}`)); } catch { /* noop */ }
+    const value = String(field === 'id' ? msg.id : msg.to).slice(0, 200);
+    this.appendLog({ kind: 'drop', reason: `invalid-${field}`, from: msg.from, file: f, value });
+    try {
+      this.deliver({
+        ...msg,
+        id: `${stamp()}-${shortRand()}`,
+        to: msg.from,
+        subject: `[rejected — the message "${field}" ${JSON.stringify(value)} can't be a file name: use letters, digits, ".", "_", "-" only, no ".." and no path separators; fix it and resend] ${msg.subject}`
+      }, msg.from);
+    } catch { /* the author has no usable inbox — the drop log above is the record */ }
   }
 
   // — read helpers (for IPC / UI) —
@@ -2869,6 +2929,7 @@ Write one JSON file into \`outbox/\` (any filename ending in \`.json\`):
 \`\`\`
 
 The harness fills in \`id\`, \`from\`, \`hops\`, and timestamps.
+If you set your own \`id\`, it becomes a file name: letters, digits, \`.\`, \`_\` and \`-\` only, at most 200, no \`..\`, not starting with \`.\`. An \`id\` or \`to\` outside that is never delivered: it lands as \`bad-\` in your \`.sent\` and a \`[rejected …]\` copy comes back to your inbox.
 
 ## \`.sent\` is not "delivered" — and \`bad-\` says so
 
