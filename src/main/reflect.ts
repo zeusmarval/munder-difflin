@@ -96,6 +96,8 @@ export interface ReflectResult {
   reason: string;            // why (skipped/aborted/done), for logging + UI
   oldBytes?: number;
   newBytes?: number;
+  /** Set on `summarize-unavailable`: the service notice that came back instead of a summary. */
+  notice?: ServiceNotice;
 }
 
 export class MemoryReflector {
@@ -108,6 +110,9 @@ export class MemoryReflector {
    *  In-memory on purpose: a relaunch retries each agent once, which is cheap and
    *  re-learns the floor with the current summarizer. */
   private floorBytes = new Map<string, number>();
+  /** Epoch ms until which the loop doesn't call the summarizer at all (a quota or
+   *  login notice is floor-wide: every agent would get the same notice). 0 = running. */
+  private pausedUntil = 0;
 
   /**
    * @param getHome      Lazily resolve harnessHome so reflection follows config.
@@ -157,6 +162,13 @@ export class MemoryReflector {
     let ids: string[];
     try { ids = readdirSync(agentsDir); } catch { return []; }
     if (onlyId) ids = ids.filter((id) => id === onlyId);
+    // The pause is the loop's only, like the floor backoff — the manual button always tries.
+    if (!onlyId && this.pausedUntil) {
+      if (Date.now() < this.pausedUntil) return [];
+      try { this.appendLog({ kind: 'condense-resumed', pausedUntil: new Date(this.pausedUntil).toISOString() }); }
+      catch { /* best-effort */ }
+      this.pausedUntil = 0;
+    }
 
     this.reflecting = true;
     const results: ReflectResult[] = [];
@@ -179,6 +191,17 @@ export class MemoryReflector {
         if (result.reason === 'not-smaller') this.floorBytes.set(id, bytes);
         else if (result.condensed) this.floorBytes.delete(id);
         results.push(result);
+        const until = result.notice ? pauseUntil(result.notice, Date.now()) : null;
+        if (until !== null) {
+          this.pausedUntil = until;
+          try {
+            this.appendLog({
+              kind: 'condense-paused', agentId: id, notice: result.notice!.kind,
+              until: new Date(until).toISOString(), fromReset: result.notice!.resetAt !== undefined
+            });
+          } catch { /* best-effort */ }
+          break;
+        }
       }
     } finally {
       this.reflecting = false;
@@ -228,6 +251,13 @@ export class MemoryReflector {
     try {
       summary = await this.summarize(home, parsed.condensed, evict, parsed.pinned);
     } catch (e) {
+      if (e instanceof SummaryUnavailableError) {
+        this.logAbort(id, 'summarize-unavailable', String(e), {
+          notice: e.notice.kind, responsePrefix: e.responsePrefix,
+          ...(e.notice.resetAt !== undefined ? { resetAt: new Date(e.notice.resetAt).toISOString() } : {})
+        });
+        return { id, condensed: false, reason: 'summarize-unavailable', oldBytes, notice: e.notice };
+      }
       this.logAbort(id, 'summarize-failed', String(e),
         e instanceof SummaryParseError ? { responsePrefix: e.responsePrefix } : undefined);
       return { id, condensed: false, reason: 'summarize-failed', oldBytes };
@@ -307,6 +337,8 @@ export class MemoryReflector {
     if (!result.ok || !result.text) {
       throw new Error(result.error ?? 'condense: hidden session returned no text');
     }
+    const notice = detectServiceNotice(result.text, Date.now());
+    if (notice) throw new SummaryUnavailableError(notice, result.text);
     const parsed = parseSummary(result.text);
     if (!parsed) throw new SummaryParseError(result.text);
     return parsed;
@@ -318,7 +350,7 @@ export class MemoryReflector {
 /** Abort reasons that are the verify gate doing its job, not a failure: the
  *  original file is untouched and nothing needs fixing. `not-smaller` fires when
  *  the memory is already near its floor (e.g. right after a /compact). */
-export const BENIGN_CONDENSE_ABORTS: ReadonlySet<string> = new Set(['not-smaller']);
+export const BENIGN_CONDENSE_ABORTS: ReadonlySet<string> = new Set(['not-smaller', 'summarize-unavailable']);
 
 /** Whether the loop may try an agent whose last condense was refused as
  *  `not-smaller` at `floor` bytes: only once the file has regrown FLOOR_REGROW_PCT. */
@@ -517,6 +549,117 @@ function balancedObject(text: string, start: number): string | null {
     out += ch;
   }
   return null;
+}
+
+/** A reply from the SERVICE, not the model: the summarizer never ran. In the census
+ *  of 1412 real condense replies, 499 were these, mostly quota notices. */
+export interface ServiceNotice {
+  kind: 'quota' | 'login' | 'connection';
+  /** When the notice names its reset time (quota only), as epoch ms. */
+  resetAt?: number;
+}
+
+/** Notices are one short line; a summary that merely MENTIONS a limit is long. */
+const NOTICE_MAX_CHARS = 500;
+/** Pause when a notice gives no usable reset time. */
+const PAUSE_FALLBACK_MS = 60 * 60_000;
+/** Resume a little after the stated reset, not on the dot. */
+const RESET_MARGIN_MS = 2 * 60_000;
+/** No pause outlasts this; then ONE call probes, and a notice pauses again. A limit
+ *  can lift before its stated reset: replaying the 1419 real calls, the weekly notice
+ *  of 2026-10-02 (reset in 103 h) would have blocked 132 calls that succeeded. With
+ *  this cap the replay avoids 471 of the 499 notice calls and delays 6 good ones. */
+const PAUSE_MAX_MS = 4 * 60 * 60_000;
+/** A reset further out than this is a misparse; fall back to the fixed pause. */
+const RESET_MAX_AHEAD_MS = 8 * 24 * 60 * 60_000;
+
+/** Classify a summarize reply that is a service notice (the four real shapes:
+ *  session limit, weekly limit, `/login` 403, connection lost). Null otherwise. */
+export function detectServiceNotice(text: string, now: number): ServiceNotice | null {
+  const t = text.trim();
+  if (t.length > NOTICE_MAX_CHARS) return null;
+  if (/^You've hit your (session|weekly) limit\b/i.test(t)) {
+    const resetAt = parseResetTime(t, now);
+    return resetAt === null ? { kind: 'quota' } : { kind: 'quota', resetAt };
+  }
+  if (/^Please run \/login\b/i.test(t) || /^API Error: 40[13]\b/.test(t)) return { kind: 'login' };
+  if (/^API Error: Connection lost\b/i.test(t)) return { kind: 'connection' };
+  return null;
+}
+
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** `resets 3:30pm (America/Caracas)` or `resets Oct 12, 4pm (America/Caracas)` →
+ *  the next such instant after `now`, as epoch ms. Null if absent or implausible. */
+export function parseResetTime(text: string, now: number): number | null {
+  const m = /resets\s+(?:([A-Za-z]{3})[a-z]*\s+(\d{1,2}),\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)/i.exec(text);
+  if (!m) return null;
+  const [, mon, day, hh, mm, ampm, tz] = m;
+  let hour = Number(hh) % 12;
+  if (ampm.toLowerCase() === 'pm') hour += 12;
+  const minute = mm ? Number(mm) : 0;
+  const local = zonedParts(now, tz);
+  if (!local) return null;
+  let at: number;
+  if (mon) {
+    const month = MONTHS.indexOf(mon.toLowerCase());
+    if (month === -1) return null;
+    at = zonedToUtc(local.year, month, Number(day), hour, minute, tz);
+    // A date a day or more behind `now` is next year's (Dec notice read in Jan).
+    if (at < now - 24 * 60 * 60_000) at = zonedToUtc(local.year + 1, month, Number(day), hour, minute, tz);
+  } else {
+    at = zonedToUtc(local.year, local.month, local.day, hour, minute, tz);
+    if (at <= now) at = zonedToUtc(local.year, local.month, local.day + 1, hour, minute, tz);
+  }
+  if (!Number.isFinite(at) || at <= now || at - now > RESET_MAX_AHEAD_MS) return null;
+  return at;
+}
+
+/** Wall-clock parts of `utc` in `tz` (month 0-based). Null for an unknown zone. */
+function zonedParts(utc: number, tz: string):
+  { year: number; month: number; day: number; hour: number; minute: number } | null {
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric'
+    }).formatToParts(new Date(utc));
+  } catch { return null; }
+  const get = (type: string): number => Number(parts.find((p) => p.type === type)?.value);
+  return { year: get('year'), month: get('month') - 1, day: get('day'), hour: get('hour'), minute: get('minute') };
+}
+
+/** The UTC instant at which `tz` shows the given wall clock (day may overflow). */
+function zonedToUtc(year: number, month: number, day: number, hour: number, minute: number, tz: string): number {
+  const wall = Date.UTC(year, month, day, hour, minute);
+  let utc = wall;
+  for (let i = 0; i < 2; i++) {
+    const p = zonedParts(utc, tz);
+    if (!p) return NaN;
+    utc = wall - (Date.UTC(p.year, p.month, p.day, p.hour, p.minute) - utc);
+  }
+  return utc;
+}
+
+/** How long a notice pauses the whole condense loop: a quota or login notice is
+ *  floor-wide (the next agent gets the same one), so until the stated reset, or
+ *  a fixed hour without one, never past PAUSE_MAX_MS. A lost connection is one
+ *  call's luck: no pause. */
+export function pauseUntil(notice: ServiceNotice, now: number): number | null {
+  if (notice.kind === 'connection') return null;
+  const until = notice.resetAt !== undefined ? notice.resetAt + RESET_MARGIN_MS : now + PAUSE_FALLBACK_MS;
+  return Math.min(until, now + PAUSE_MAX_MS);
+}
+
+/** The summarizer's reply was a service notice, not a summary. */
+export class SummaryUnavailableError extends Error {
+  readonly notice: ServiceNotice;
+  readonly responsePrefix: string;
+  constructor(notice: ServiceNotice, text: string) {
+    super(`condense: summarizer unavailable (${notice.kind})`);
+    this.notice = notice;
+    this.responsePrefix = text.slice(0, RESPONSE_PREFIX_CHARS);
+  }
 }
 
 /** How much of an unparseable condense response the abort event keeps. */

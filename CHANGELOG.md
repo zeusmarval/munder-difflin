@@ -8,6 +8,13 @@ All notable changes to this project are documented here. The format is based on
 
 ### Changed
 
+- **Memory condensing pauses while your usage limit is reached.** When the summarizer
+  answered with a usage-limit or login notice instead of a summary, condensing kept trying
+  every agent on every cycle, and each try was a wasted call. Now the first notice pauses
+  condensing for all agents until the reset time the notice gives (at most 4 hours, then
+  one try checks again), or for an hour if it gives none. The log shows `condense-paused`
+  and `condense-resumed`, and the notice itself is logged as `summarize-unavailable`
+  rather than as a failure. Starting a condense by hand still runs during a pause.
 - **Memory condensing accepts the summaries the model actually returns.** A summary with
   raw line breaks inside its text, or with stray characters after it, was thrown away as
   "no parseable JSON" and the memory file was left uncondensed. Those summaries are now
