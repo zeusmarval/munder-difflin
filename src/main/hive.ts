@@ -2870,6 +2870,32 @@ Write one JSON file into \`outbox/\` (any filename ending in \`.json\`):
 
 The harness fills in \`id\`, \`from\`, \`hops\`, and timestamps.
 
+## \`.sent\` is not "delivered" — and \`bad-\` says so
+
+**\`outbox/.sent/\` means the harness PICKED THE FILE UP, not that it ARRIVED.** A \`bad-\` prefix there means that ONE ATTEMPT was *marked* undelivered — and the mark fails both ways: a valid message has been lost with no mark (an empty list proves nothing), and a retry can land beside \`bad-X.json\` as \`X.json\` (the rename frees the name).
+
+**The habit — at task start AND before closing** (print counts: a check that saw zero items cannot report OK):
+\`\`\`sh
+d=agents/<your-id>/outbox/.sent
+[ -d "$d" ] && echo "$(ls -1 "$d" | grep -c '^bad-') bad- of $(ls -1 "$d" | wc -l)" || echo "BAD PATH: $d - this check looked at NOTHING"
+\`\`\`
+
+**Before resending, ask whether the content still matters** — and answer "did someone already say it?" by CONTENT, not by filename. **To check the recipient's side, match the \`id\` FIELD, never the filename** (a third of delivered files are not named \`<id>.json\`); **if that is empty, check the THREAD** (a resend has a new \`id\` but the same \`conversation\`/\`in_reply_to\`):
+\`\`\`sh
+grep -rl '"id": *"<id>"' agents/<recipient-id>/inbox              # 1. the message
+grep -rl '"conversation": *"<conv>"' agents/<recipient-id>/inbox  # 2. the thread
+\`\`\`
+Absence at every level means "no trace", never "did not arrive".
+
+**Write your own \`id\`**, even though the harness would fill one in: you cannot search for an id you never wrote. That is AUDITABILITY, not deliverability — an \`id\` does not make a message arrive, it lets you prove afterwards whether it did.
+
+**A zero without a positive control is not a result — it is an unvalidated query.** Before believing an empty search, run the same query on a case you KNOW is present. (Silent here before: a glob wildcard never enters \`.done\`; \`find -maxdepth 3\` misses delivered files at depth 4.)
+
+**Build bodies with a JSON serializer, never a heredoc, then read the file back asserting \`id\`, \`to\` and \`in_reply_to\`.** A re-read only guarantees what it checks.
+
+**Bounces:** since 2026-10-10 an \`[undeliverable]\` for an id that is not on the floor comes back to YOUR \`inbox/\` (verified arriving there live); a failed terminal handoff still bounces to god, who relays it. Keep the habit anyway: a message can still be lost with NO bounce at all (see \`bad-\` above).
+Evidence, measurements and credits: [\`DELIVERY-EVIDENCE.md\`](DELIVERY-EVIDENCE.md).
+
 ## Rules of the road
 - Only \`request\`, \`query\`, and \`propose\` expect a reply. \`inform\` and \`done\` are terminal —
   don't reply to them, or two agents will loop forever.
