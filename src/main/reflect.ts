@@ -29,6 +29,12 @@ import { runHiddenClaude } from './hiddenClaude';
 
 /** Total memory.md budget — mirrors the janitor's CONTEXT_BUDGET_BYTES (128 KB). */
 const BUDGET_BYTES = 131_072;
+/** After a `not-smaller` abort the file is at its floor: re-summarizing it can't
+ *  beat the gate's 95% bar (on one floor 6 of 8 agents hit this every 30 min, and
+ *  3 rewrites came out LARGER). The loop skips that agent until the file has
+ *  grown this much past the size it was refused at — new material is the only
+ *  thing that can make a condense pay. */
+const FLOOR_REGROW_PCT = 5;
 /** Cheap tail-summarizer (DECIDED by god). The verify gate covers quality. */
 const CONDENSE_MODEL = 'claude-haiku-5-5';
 /** Hard cap so a wedged headless run can't stall the reflect loop. */
@@ -98,6 +104,10 @@ export class MemoryReflector {
   /** True while a reflectNow() pass is in flight — serializes the loop (a slow
    *  LLM pass must not overlap the next interval tick), mirroring MemoryManager. */
   private reflecting = false;
+  /** agentId → memory.md size at its last `not-smaller` (see FLOOR_REGROW_PCT).
+   *  In-memory on purpose: a relaunch retries each agent once, which is cheap and
+   *  re-learns the floor with the current summarizer. */
+  private floorBytes = new Map<string, number>();
 
   /**
    * @param getHome      Lazily resolve harnessHome so reflection follows config.
@@ -161,9 +171,14 @@ export class MemoryReflector {
           // A manual single-agent call condenses on demand (skips the trigger);
           // the autonomous loop honors the threshold.
           if (!onlyId && !this.shouldCondense(bytes, mem, settings)) continue;
+          // The floor backoff is the loop's only — the manual button always tries.
+          if (!onlyId && !floorAllows(this.floorBytes.get(id), bytes)) continue;
           text = readFileSync(mem, 'utf8');
         } catch { continue; }
-        results.push(await this.condense(home, id, mem, text, settings));
+        const result = await this.condense(home, id, mem, text, settings);
+        if (result.reason === 'not-smaller') this.floorBytes.set(id, bytes);
+        else if (result.condensed) this.floorBytes.delete(id);
+        results.push(result);
       }
     } finally {
       this.reflecting = false;
@@ -303,6 +318,13 @@ export class MemoryReflector {
  *  original file is untouched and nothing needs fixing. `not-smaller` fires when
  *  the memory is already near its floor (e.g. right after a /compact). */
 export const BENIGN_CONDENSE_ABORTS: ReadonlySet<string> = new Set(['not-smaller']);
+
+/** Whether the loop may try an agent whose last condense was refused as
+ *  `not-smaller` at `floor` bytes: only once the file has regrown FLOOR_REGROW_PCT. */
+export function floorAllows(floor: number | undefined, bytes: number): boolean {
+  if (floor === undefined) return true;
+  return bytes >= floor * (1 + FLOOR_REGROW_PCT / 100);
+}
 
 export function isBenignAbort(reason: string): boolean {
   return BENIGN_CONDENSE_ABORTS.has(reason);

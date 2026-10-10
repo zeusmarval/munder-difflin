@@ -25,6 +25,11 @@ All notable changes to this project are documented here. The format is based on
   hidden condense session now runs with telemetry off and no agent identity, so a failed
   condense can never be counted against an agent by the circuit breaker, even when a dev build
   inherits an agent's shell environment.
+- **The memory condenser stops re-summarizing files it cannot shrink.** A `memory.md` refused as
+  `not-smaller` was sent to Haiku again every 30 minutes, though it could never pass the gate (on
+  one floor 6 of 8 agents per cycle, and some rewrites came out larger). The automatic loop now
+  skips such an agent until its file has grown 5% past the refused size. A successful condense
+  clears the backoff, and the manual "condense now" still always tries.
 - **Fewer repeated tokens per turn.** The orchestrator's live roster and each agent's standing
   goal were re-injected on every prompt, so every turn appended another identical copy to the
   transcript. Both now go in at session start (including after a resume or compaction) and on a
