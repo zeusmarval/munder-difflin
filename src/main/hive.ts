@@ -3039,7 +3039,7 @@ If you set your own \`id\`, it becomes a file name: letters, digits, \`.\`, \`_\
 
 ## \`.sent\` is not "delivered" — and \`bad-\` says so
 
-**\`outbox/.sent/\` means the harness PICKED THE FILE UP, not that it ARRIVED.** A \`bad-\` prefix there means that ONE ATTEMPT was *marked* undelivered — and the mark fails both ways: a valid message has been lost with no mark (an empty list proves nothing), and a retry can land beside \`bad-X.json\` as \`X.json\` (the rename frees the name).
+**\`outbox/.sent/\` means the harness PICKED THE FILE UP, not that it ARRIVED.** Since HARNESS-4 a \`bad-\` there is always a REAL rejection, never a passing glitch: the file was malformed (settled, not mid-write), its \`id\`/\`to\` can't be a file name, or delivery failed 5 times in a row (the retries, 2 s to 16 s apart, reuse the SAME id - no second copy lands beside it). Every \`bad-\` has a \`drop\` line in \`log.jsonl\` (\`reason\`: \`malformed\` | \`invalid-id\` | \`invalid-to\` | \`delivery-failed\`), and the first two also bounce to YOUR \`inbox/\`; \`delivery-failed\` does not, so check: \`grep '"kind":"drop"' log.jsonl | grep '"from":"<your-id>"'\`. \`bad-\` files older than HARNESS-4 keep the old meaning (one attempt marked; some parse fine). \`.sent\` is still the backup, not the proof: an empty \`bad-\` list says nothing about arrival. **In a message body, write Windows paths with \`/\` or a doubled backslash** - a single one is an invalid JSON escape, the commonest \`bad-\` on the floor.
 
 **The habit — at task start AND before closing** (print counts: a check that saw zero items cannot report OK):
 \`\`\`sh
