@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format is based on
 
 ### Fixed
 
+- **A long agent description no longer pushes the terminal off screen in focus mode.** The
+  description in the focus-mode header is one line ending in "…", with a "see more" link
+  when it is cut off; expanded, it is capped at a few lines and scrolls.
+
 - **Memory indexing waits when your computer is short on memory.** Each run of
   `mempalace mine` uses about 1 GB, and one started during a long agent run pushed free
   memory low enough that the system closed that run. Indexing now starts only with at least

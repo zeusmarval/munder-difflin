@@ -153,6 +153,8 @@
     "barFailed": "{{tool}} · {{ms}}ms · 失败"
   },
   "agentDetail": {
+    "seeMore": "展开",
+    "seeLess": "收起",
     "open": "打开",
     "opening": "...",
     "ok": "正常",

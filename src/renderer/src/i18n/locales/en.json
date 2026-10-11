@@ -153,6 +153,8 @@
     "barFailed": "{{tool}} · {{ms}}ms · failed"
   },
   "agentDetail": {
+    "seeMore": "see more",
+    "seeLess": "see less",
     "open": "open",
     "opening": "...",
     "ok": "ok",

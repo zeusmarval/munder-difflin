@@ -153,6 +153,8 @@
     "barFailed": "{{tool}} · {{ms}} م.ث · فاشل"
   },
   "agentDetail": {
+    "seeMore": "عرض المزيد",
+    "seeLess": "عرض أقل",
     "open": "فتح",
     "opening": "...",
     "ok": "تم",

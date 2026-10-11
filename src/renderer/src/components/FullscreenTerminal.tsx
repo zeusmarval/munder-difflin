@@ -918,6 +918,56 @@ function SidebarRow({
   );
 }
 
+/** The agent's description in the header. A long briefing used to wrap
+ *  unbounded and push the terminal off screen, so it is one ellipsized line by
+ *  default; "see more" (shown only when the line is actually cut) opens it in a
+ *  height-capped, scrollable box that can never swallow the chat below. */
+function AgentBlurb({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const [clipped, setClipped] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  // Measure only the collapsed line: the expanded box wraps and never overflows
+  // horizontally, which would otherwise hide the toggle that collapses it.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || expanded) return;
+    const measure = () => setClipped(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text, expanded]);
+
+  if (!text) return null;
+  return (
+    <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <span
+        ref={ref}
+        title={expanded ? undefined : text}
+        style={{
+          fontSize: 12, lineHeight: '16px', color: 'var(--cth-ink-700)', fontStyle: 'italic',
+          minWidth: 0,
+          ...(expanded
+            ? { whiteSpace: 'pre-wrap' as const, wordBreak: 'break-word' as const, maxHeight: 96, overflowY: 'auto' as const }
+            : { whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis' })
+        }}
+      >“{text}”</span>
+      {(clipped || expanded) && (
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          style={{
+            flexShrink: 0, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+            fontFamily: 'var(--cth-font-ui)', fontSize: 12, lineHeight: '16px',
+            color: 'var(--cth-ink-500)', textDecoration: 'underline', whiteSpace: 'nowrap'
+          }}
+        >{expanded ? t('agentDetail.seeLess') : t('agentDetail.seeMore')}</button>
+      )}
+    </div>
+  );
+}
+
 function Header({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
   const { t } = useTranslation();
   const typing = useHasTerminalDraft(agent.ptyId);
@@ -984,10 +1034,7 @@ function Header({ agent, onEdit }: { agent: Agent; onEdit: () => void }) {
         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
         maxWidth: 300
       }}>{agent.cwd}</span>
-      <span style={{
-        fontSize: 12, color: 'var(--cth-ink-700)',
-        fontStyle: 'italic'
-      }}>“{agent.description}”</span>
+      <AgentBlurb key={agent.id} text={agent.description} />
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}>
         {/* v0.3.4: the IDE opens from agent level — full Monaco editor + git
             diff over this agent's workspace. The id is passed EXPLICITLY:
