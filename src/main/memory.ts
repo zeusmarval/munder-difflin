@@ -428,11 +428,18 @@ export class MemoryManager {
       if (!bin) { resolve(); return; }
       ensureMineIgnore(agentDir); // keep settings.json / cursor / messages out of the index
       // stdin closed (mempalace can prompt); mempalace dedups so re-mining is safe.
+      // stdout is kept (tail only) because mempalace prints its outcome there —
+      // "Done." or "Mine aborted by exception" — while stderr usually ends in a
+      // harmless warning, which made a bare exit code impossible to diagnose.
+      // PYTHONFAULTHANDLER dumps a stack to stderr if the interpreter dies natively.
+      const startedAt = Date.now();
       const proc = spawn(bin, ['mine', agentDir, '--wing', id, '--agent', id], {
-        env: this.childEnv(), stdio: ['ignore', 'ignore', 'pipe']
+        env: { ...this.childEnv(), PYTHONFAULTHANDLER: '1' }, stdio: ['ignore', 'pipe', 'pipe']
       });
       let err = '';
+      let out = '';
       proc.stderr?.on('data', (d) => { err += d.toString(); });
+      proc.stdout?.on('data', (d) => { out = (out + d.toString()).slice(-4000); });
       // Hard ceiling: a wedged mine used to hold its PID forever AND leave
       // `mining` stuck true, silently stopping all future passes. Generous cap
       // because the first run may lazily download the embedding model.
@@ -442,10 +449,20 @@ export class MemoryManager {
         ensureKilled(proc.pid); // SIGKILL sweep if SIGTERM is ignored
       }, MINE_TIMEOUT_MS);
       timer.unref?.();
-      proc.on('close', (code) => {
+      proc.on('close', (code, signal) => {
         clearTimeout(timer);
         if (code !== 0) {
-          console.error(`[memory] mine ${id} exited ${code}: ${err.slice(-300)}`);
+          const secs = Math.round((Date.now() - startedAt) / 1000);
+          // Drop the known-harmless warnings so the tail shows what actually happened.
+          const errTail = err
+            .split(/\r?\n/)
+            .filter((l) => !/EmbedderIdentityUnknownWarning|_enforce_embedder_identity|No mempalace\.yaml found/.test(l))
+            .join('\n').trim().slice(-600);
+          const outTail = out.trim().split(/\r?\n/).slice(-6).join(' | ').slice(-400);
+          console.error(
+            `[memory] mine ${id} exited ${code}${signal ? ` (${signal})` : ''} after ${secs}s` +
+            `\n  stdout: ${outTail || '(none)'}\n  stderr: ${errTail || '(only known warnings)'}`
+          );
           this.lastMined.delete(id); // let the next tick retry
         }
         resolve();
